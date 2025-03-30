@@ -9,7 +9,12 @@ const IngredientSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['pasta', 'sauce', 'protein', 'vegetable', 'dairy', 'herb', 'spice', 'other'],
+    enum: [
+      'base', 'protein', 'vegetable', 'fruit', 
+      'grain', 'dairy', 'herb', 'spice', 
+      'condiment', 'oil', 'sauce', 'pasta',
+      'legume', 'nut', 'seed', 'sweetener', 'other'
+    ],
     required: true
   },
   nutritionPer100g: {

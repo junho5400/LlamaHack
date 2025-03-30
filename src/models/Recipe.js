@@ -9,8 +9,13 @@ const RecipeSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['pasta', 'sauce', 'complete'],
+    enum: ['appetizer', 'main', 'side', 'dessert', 'breakfast', 'lunch', 'dinner', 'snack', 'drink', 'complete'],
     default: 'complete'
+  },
+  cuisine: {
+    type: String,
+    required: false,
+    trim: true
   },
   ingredients: [{
     ingredient: {

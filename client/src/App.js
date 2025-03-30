@@ -62,8 +62,8 @@ function App() {
     <Router>
       <AppContainer>
         <Header>
-          <h1>Pasta Culinary Assistant</h1>
-          <p>Your AI-powered guide to delicious pasta dishes</p>
+          <h1>AI Culinary Assistant</h1>
+          <p>Your AI-powered guide to delicious meals</p>
         </Header>
         
         <NavBar>
@@ -125,11 +125,11 @@ const Home = () => {
   
   return (
     <HomeContainer>
-      <HomeTitle>Welcome to Your Personal Pasta Chef!</HomeTitle>
+      <HomeTitle>Welcome to Your Personal AI Chef!</HomeTitle>
       <HomeDescription>
-        Discover delicious pasta recipes, customize them to your taste, or create your own unique pasta dish.
+        Discover delicious recipes from any cuisine, customize them to your taste, or create your own unique dishes.
         Our AI-powered culinary assistant will guide you through the entire process, from choosing ingredients
-        to cooking the perfect pasta meal.
+        to cooking the perfect meal for any occasion.
       </HomeDescription>
       <StartButton to="/chat">Start Cooking</StartButton>
     </HomeContainer>

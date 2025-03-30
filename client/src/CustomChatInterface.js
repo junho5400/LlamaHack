@@ -6,13 +6,15 @@ import axios from 'axios';
 const CHAT_STATES = {
   INITIAL: 'initial',
   CUISINE_SELECTED: 'cuisine_selected',
-  PASTA_SELECTED: 'pasta_selected',
+  DISH_TYPE_SELECTED: 'dish_type_selected',
+  RECIPE_SELECTED: 'recipe_selected',
   CUSTOMIZING_RECIPE: 'customizing_recipe',
   CREATING_CUSTOM: 'creating_custom',
-  SELECTING_PASTA_TYPE: 'selecting_pasta_type',
-  SELECTING_SAUCE: 'selecting_sauce',
+  SELECTING_BASE: 'selecting_base',
   SELECTING_PROTEIN: 'selecting_protein',
   SELECTING_VEGETABLES: 'selecting_vegetables',
+  SELECTING_SEASONINGS: 'selecting_seasonings',
+  SELECTING_COOKING_METHOD: 'selecting_cooking_method',
   RECIPE_COMPLETE: 'recipe_complete'
 };
 
@@ -128,10 +130,11 @@ const CustomChatInterface = () => {
   const [options, setOptions] = useState([]);
   const [currentRecipe, setCurrentRecipe] = useState(null);
   const [customOptions, setCustomOptions] = useState({
-    pastaType: '',
-    sauce: '',
+    base: '',
     protein: '',
-    vegetables: []
+    vegetables: [],
+    seasonings: [],
+    cookingMethod: ''
   });
   const [userPreferences, setUserPreferences] = useState({
     allergies: [],
@@ -152,7 +155,7 @@ const CustomChatInterface = () => {
   // Initial greeting when component mounts
   useEffect(() => {
     addMessage({
-      text: 'Hello! I\'m your culinary assistant. What type of cuisine would you like to make today?',
+      text: 'Hello! I\'m your culinary assistant. What type of cuisine or dish would you like to make today?',
       sender: 'bot'
     });
   }, []);
@@ -182,32 +185,43 @@ const CustomChatInterface = () => {
   const processUserInput = async (text) => {
     switch (chatState) {
       case CHAT_STATES.INITIAL:
-        // User has entered a cuisine type
-        fetchPastaOptions(text);
+        // User has entered a cuisine or dish type
+        if (text.toLowerCase().includes('create my own')) {
+          startCustomRecipeFlow();
+        } else {
+          processInitialInput(text);
+        }
         break;
       case CHAT_STATES.CUISINE_SELECTED:
-        // User has selected a pasta type or "Create my own"
+        // User has selected a dish type
+        fetchRecipeOptions(text);
+        break;
+      case CHAT_STATES.DISH_TYPE_SELECTED:
+        // User has selected a specific recipe
         if (text.toLowerCase().includes('create my own')) {
           startCustomRecipeFlow();
         } else {
           fetchRecipeByName(text);
         }
         break;
-      case CHAT_STATES.PASTA_SELECTED:
+      case CHAT_STATES.RECIPE_SELECTED:
         // User might be customizing the recipe
         customizeCurrentRecipe(text);
         break;
-      case CHAT_STATES.SELECTING_PASTA_TYPE:
-        selectPastaType(text);
-        break;
-      case CHAT_STATES.SELECTING_SAUCE:
-        selectSauce(text);
+      case CHAT_STATES.SELECTING_BASE:
+        selectBase(text);
         break;
       case CHAT_STATES.SELECTING_PROTEIN:
         selectProtein(text);
         break;
       case CHAT_STATES.SELECTING_VEGETABLES:
         selectVegetables(text);
+        break;
+      case CHAT_STATES.SELECTING_SEASONINGS:
+        selectSeasonings(text);
+        break;
+      case CHAT_STATES.SELECTING_COOKING_METHOD:
+        selectCookingMethod(text);
         break;
       default:
         // Default fallback
@@ -218,36 +232,83 @@ const CustomChatInterface = () => {
     }
   };
 
-  // Fetch pasta options based on cuisine
-  const fetchPastaOptions = async (cuisine) => {
+  // Process the initial input (cuisine, dish type, or specific dish)
+  const processInitialInput = async (input) => {
     try {
-      addMessage({
-        text: `Looking for ${cuisine} pasta options...`,
-        sender: 'bot'
-      });
+      // Check if input contains both cuisine and dish type
+      const hasCuisine = /italian|french|chinese|japanese|mexican|indian|thai|greek|moroccan|american/i.test(input);
+      const hasDishType = /appetizer|soup|salad|main course|dessert|breakfast|lunch|dinner|side dish|snack/i.test(input);
       
-      const response = await axios.get(`/recipes/options/${cuisine}`);
-      const pastaOptions = response.data;
-      
-      if (pastaOptions.length > 0) {
-        setOptions(pastaOptions);
+      if (hasCuisine && hasDishType) {
+        // If user specified both cuisine and dish type
+        const cuisine = input.match(/italian|french|chinese|japanese|mexican|indian|thai|greek|moroccan|american/i)[0];
+        const dishType = input.match(/appetizer|soup|salad|main course|dessert|breakfast|lunch|dinner|side dish|snack/i)[0];
+        
+        fetchRecipeOptions(dishType, cuisine);
+      } else if (hasCuisine) {
+        // If user only specified cuisine
+        const cuisine = input.match(/italian|french|chinese|japanese|mexican|indian|thai|greek|moroccan|american/i)[0];
         
         addMessage({
-          text: `Here are some ${cuisine} pasta options. What would you like to make?`,
+          text: `Great! What type of ${cuisine} dish would you like to make? (e.g., appetizer, main course, dessert, etc.)`,
           sender: 'bot'
         });
         
         setChatState(CHAT_STATES.CUISINE_SELECTED);
       } else {
+        // Treat as a general dish request
+        fetchRecipeOptions(input);
+      }
+    } catch (error) {
+      console.error('Error processing initial input:', error);
+      addMessage({
+        text: `I'm not sure I understood that. Could you specify what cuisine or dish you'd like to make?`,
+        sender: 'bot'
+      });
+    }
+  };
+
+  // Fetch recipe options based on cuisine and/or dish type
+  const fetchRecipeOptions = async (dishType, cuisine = '') => {
+    try {
+      const searchText = cuisine 
+        ? `${cuisine} ${dishType}` 
+        : dishType;
+      
+      addMessage({
+        text: `Looking for ${searchText} recipes...`,
+        sender: 'bot'
+      });
+      
+      // Use the test-llama endpoint to get recipe suggestions
+      const response = await axios.post('/test-llama', {
+        prompt: `List 5 popular ${searchText} recipes. Return ONLY a JSON array in this format: 
+        [{"name": "Dish name", "description": "Brief description"}]`
+      });
+      
+      // Parse JSON from the response
+      const jsonMatch = response.data.response.match(/\[[\s\S]*\]/);
+      const recipeOptions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      
+      if (recipeOptions.length > 0) {
+        setOptions([...recipeOptions, { name: "Create my own recipe", description: "Customize your own dish" }]);
+        
         addMessage({
-          text: `I couldn't find any pasta options for ${cuisine}. Would you like to try a different cuisine?`,
+          text: `Here are some ${searchText} recipe options. What would you like to make?`,
+          sender: 'bot'
+        });
+        
+        setChatState(CHAT_STATES.DISH_TYPE_SELECTED);
+      } else {
+        addMessage({
+          text: `I couldn't find any ${searchText} recipes. Would you like to try something else?`,
           sender: 'bot'
         });
       }
     } catch (error) {
-      console.error('Error fetching pasta options:', error);
+      console.error('Error fetching recipe options:', error);
       addMessage({
-        text: `Sorry, I had trouble finding pasta options. Please try again.`,
+        text: `Sorry, I had trouble finding recipe options. Please try again.`,
         sender: 'bot'
       });
     }
@@ -261,29 +322,77 @@ const CustomChatInterface = () => {
         sender: 'bot'
       });
       
-      const response = await axios.get(`/recipes/${encodeURIComponent(name)}`);
-      const recipe = response.data;
+      // Try to get from database first
+      try {
+        const dbResponse = await axios.get(`/recipes/${encodeURIComponent(name)}`);
+        if (dbResponse.data && !dbResponse.data.error) {
+          const recipe = dbResponse.data;
+          setCurrentRecipe(recipe);
+          
+          // Display recipe details
+          const recipeText = formatRecipeText(recipe);
+          
+          addMessage({
+            text: recipeText,
+            sender: 'bot'
+          });
+          
+          addMessage({
+            text: "Would you like to customize this recipe? You can say things like 'make it spicier' or 'add more garlic'.",
+            sender: 'bot'
+          });
+          
+          setChatState(CHAT_STATES.RECIPE_SELECTED);
+          return;
+        }
+      } catch (dbError) {
+        console.log('Recipe not found in database, generating with Llama');
+      }
       
-      setCurrentRecipe(recipe);
-      
-      // Display recipe details
-      const recipeText = formatRecipeText(recipe);
-      
-      addMessage({
-        text: recipeText,
-        sender: 'bot'
+      // If not in database, use test-llama
+      const response = await axios.post('/test-llama', {
+        prompt: `Give me a detailed recipe for ${name}. Provide the recipe in this JSON format:
+        {
+          "name": "${name}",
+          "ingredients": [{"ingredient": "Ingredient name", "amount": "amount", "unit": "unit"}],
+          "instructions": ["Step 1", "Step 2", ...],
+          "nutrition": {"calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number},
+          "prepTime": number,
+          "cookTime": number,
+          "servings": number,
+          "difficulty": "easy/medium/hard"
+        }`
       });
       
-      addMessage({
-        text: "Would you like to customize this recipe? You can say things like 'make it spicier' or 'add more garlic'.",
-        sender: 'bot'
-      });
+      // Parse JSON from the response
+      const jsonMatch = response.data.response.match(/{[\s\S]*?}/);
+      const recipeJson = jsonMatch ? jsonMatch[0] : null;
       
-      setChatState(CHAT_STATES.PASTA_SELECTED);
+      if (recipeJson) {
+        const recipe = JSON.parse(recipeJson);
+        setCurrentRecipe(recipe);
+        
+        // Display recipe details
+        const recipeText = formatRecipeText(recipe);
+        
+        addMessage({
+          text: recipeText,
+          sender: 'bot'
+        });
+        
+        addMessage({
+          text: "Would you like to customize this recipe? You can say things like 'make it spicier' or 'add more garlic'.",
+          sender: 'bot'
+        });
+        
+        setChatState(CHAT_STATES.RECIPE_SELECTED);
+      } else {
+        throw new Error('Failed to parse recipe');
+      }
     } catch (error) {
       console.error('Error fetching recipe:', error);
       addMessage({
-        text: `Sorry, I had trouble finding that recipe. Would you like to try a different pasta option?`,
+        text: `Sorry, I had trouble finding that recipe. Would you like to try a different option?`,
         sender: 'bot'
       });
     }
@@ -306,25 +415,75 @@ const CustomChatInterface = () => {
         sender: 'bot'
       });
       
-      const response = await axios.post(`/recipes/customize/${currentRecipe._id}`, {
-        customizations: [customization]
+      // Try database endpoint first if recipe has an ID
+      if (currentRecipe._id) {
+        try {
+          const dbResponse = await axios.post(`/recipes/customize/${currentRecipe._id}`, {
+            customizations: [customization]
+          });
+          
+          if (dbResponse.data && !dbResponse.data.error) {
+            const customizedRecipe = dbResponse.data;
+            setCurrentRecipe(customizedRecipe);
+            
+            // Display customized recipe
+            const recipeText = formatRecipeText(customizedRecipe);
+            
+            addMessage({
+              text: `Here's your customized recipe:\n\n${recipeText}`,
+              sender: 'bot'
+            });
+            
+            addMessage({
+              text: "Is there anything else you'd like to customize?",
+              sender: 'bot'
+            });
+            return;
+          }
+        } catch (dbError) {
+          console.log('Customization via API failed, using Llama directly');
+        }
+      }
+      
+      // If no ID or API fails, use test-llama directly
+      const response = await axios.post('/test-llama', {
+        prompt: `Customize this recipe to ${customization}:\n${JSON.stringify(currentRecipe)}\n
+        Provide the customized recipe in this JSON format:
+        {
+          "name": "Recipe Name",
+          "ingredients": [{"ingredient": "Ingredient name", "amount": "amount", "unit": "unit"}],
+          "instructions": ["Step 1", "Step 2", ...],
+          "nutrition": {"calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number},
+          "prepTime": number,
+          "cookTime": number,
+          "servings": number,
+          "difficulty": "easy/medium/hard"
+        }`
       });
       
-      const customizedRecipe = response.data;
-      setCurrentRecipe(customizedRecipe);
+      // Parse JSON from the response
+      const jsonMatch = response.data.response.match(/{[\s\S]*?}/);
+      const recipeJson = jsonMatch ? jsonMatch[0] : null;
       
-      // Display customized recipe
-      const recipeText = formatRecipeText(customizedRecipe);
-      
-      addMessage({
-        text: `Here's your customized recipe:\n\n${recipeText}`,
-        sender: 'bot'
-      });
-      
-      addMessage({
-        text: "Is there anything else you'd like to customize?",
-        sender: 'bot'
-      });
+      if (recipeJson) {
+        const customizedRecipe = JSON.parse(recipeJson);
+        setCurrentRecipe(customizedRecipe);
+        
+        // Display customized recipe
+        const recipeText = formatRecipeText(customizedRecipe);
+        
+        addMessage({
+          text: `Here's your customized recipe:\n\n${recipeText}`,
+          sender: 'bot'
+        });
+        
+        addMessage({
+          text: "Is there anything else you'd like to customize?",
+          sender: 'bot'
+        });
+      } else {
+        throw new Error('Failed to parse customized recipe');
+      }
     } catch (error) {
       console.error('Error customizing recipe:', error);
       addMessage({
@@ -338,15 +497,11 @@ const CustomChatInterface = () => {
   const startCustomRecipeFlow = async () => {
     try {
       addMessage({
-        text: "Great! Let's create your own pasta dish. First, let's choose the type of pasta you want to use.",
+        text: "Great! Let's create your own custom recipe. First, what main ingredient or base would you like to use for your dish?",
         sender: 'bot'
       });
       
-      const response = await axios.get('/recipes/custom/pasta-types');
-      const pastaTypes = response.data;
-      
-      setOptions(pastaTypes);
-      setChatState(CHAT_STATES.SELECTING_PASTA_TYPE);
+      setChatState(CHAT_STATES.SELECTING_BASE);
     } catch (error) {
       console.error('Error starting custom recipe flow:', error);
       addMessage({
@@ -356,57 +511,41 @@ const CustomChatInterface = () => {
     }
   };
 
-  // Select pasta type
-  const selectPastaType = async (pastaType) => {
+  // Select base ingredient
+  const selectBase = async (base) => {
     try {
       setCustomOptions({
         ...customOptions,
-        pastaType
+        base
       });
       
       addMessage({
-        text: `You've selected ${pastaType}. Now, let's choose a sauce to go with it.`,
+        text: `Great choice! ${base} will be the base of your dish. Now, let's add a protein. What protein would you like to include?`,
         sender: 'bot'
       });
       
-      const response = await axios.get(`/recipes/custom/sauces/${encodeURIComponent(pastaType)}`);
-      const sauceOptions = response.data;
-      
-      setOptions(sauceOptions);
-      setChatState(CHAT_STATES.SELECTING_SAUCE);
-    } catch (error) {
-      console.error('Error selecting pasta type:', error);
-      addMessage({
-        text: `Sorry, I had trouble processing your selection. Would you like to try a different pasta type?`,
-        sender: 'bot'
-      });
-    }
-  };
-
-  // Select sauce
-  const selectSauce = async (sauce) => {
-    try {
-      setCustomOptions({
-        ...customOptions,
-        sauce
+      // Use Llama to suggest protein options
+      const response = await axios.post('/test-llama', {
+        prompt: `List 5 protein options that would pair well with ${base} as the main ingredient. Return ONLY a JSON array in this format: 
+        [{"name": "Protein name", "description": "Brief description"}]`
       });
       
-      addMessage({
-        text: `${sauce} sauce is a great choice with ${customOptions.pastaType}! Now, let's add a protein.`,
-        sender: 'bot'
-      });
+      // Parse JSON from the response
+      const jsonMatch = response.data.response.match(/\[[\s\S]*\]/);
+      const proteinOptions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
       
-      const response = await axios.get(`/recipes/custom/proteins/${encodeURIComponent(customOptions.pastaType)}/${encodeURIComponent(sauce)}`);
-      const proteinOptions = response.data;
+      if (proteinOptions.length > 0) {
+        setOptions(proteinOptions);
+      }
       
-      setOptions(proteinOptions);
       setChatState(CHAT_STATES.SELECTING_PROTEIN);
     } catch (error) {
-      console.error('Error selecting sauce:', error);
+      console.error('Error selecting base:', error);
       addMessage({
-        text: `Sorry, I had trouble processing your selection. Would you like to try a different sauce?`,
+        text: `I've noted that you want to use ${base} as your base ingredient. Now, what protein would you like to add?`,
         sender: 'bot'
       });
+      setChatState(CHAT_STATES.SELECTING_PROTEIN);
     }
   };
 
@@ -419,21 +558,32 @@ const CustomChatInterface = () => {
       });
       
       addMessage({
-        text: `${protein} will go wonderfully with ${customOptions.pastaType} and ${customOptions.sauce}! Now, let's add some vegetables. You can list multiple vegetables separated by commas.`,
+        text: `${protein} is a great protein choice! Now, let's add some vegetables. What vegetables would you like to include? You can list multiple vegetables separated by commas.`,
         sender: 'bot'
       });
       
-      const response = await axios.get(`/recipes/custom/vegetables/${encodeURIComponent(customOptions.pastaType)}/${encodeURIComponent(customOptions.sauce)}/${encodeURIComponent(protein)}`);
-      const vegetableOptions = response.data;
+      // Use Llama to suggest vegetable options
+      const response = await axios.post('/test-llama', {
+        prompt: `List 5 vegetable options that would pair well with ${customOptions.base} and ${protein}. Return ONLY a JSON array in this format: 
+        [{"name": "Vegetable name", "description": "Brief description"}]`
+      });
       
-      setOptions(vegetableOptions);
+      // Parse JSON from the response
+      const jsonMatch = response.data.response.match(/\[[\s\S]*\]/);
+      const vegetableOptions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      
+      if (vegetableOptions.length > 0) {
+        setOptions(vegetableOptions);
+      }
+      
       setChatState(CHAT_STATES.SELECTING_VEGETABLES);
     } catch (error) {
       console.error('Error selecting protein:', error);
       addMessage({
-        text: `Sorry, I had trouble processing your selection. Would you like to try a different protein?`,
+        text: `I've noted that you want to use ${protein} as your protein. Now, what vegetables would you like to add?`,
         sender: 'bot'
       });
+      setChatState(CHAT_STATES.SELECTING_VEGETABLES);
     }
   };
 
@@ -448,35 +598,136 @@ const CustomChatInterface = () => {
       });
       
       addMessage({
-        text: `Creating your custom pasta recipe with ${customOptions.pastaType}, ${customOptions.sauce}, ${customOptions.protein}, and ${vegetables.join(', ')}...`,
+        text: `Great vegetable choices! Now, let's add some seasonings, herbs, or spices. What would you like to flavor your dish with?`,
         sender: 'bot'
       });
       
-      const response = await axios.post('/recipes/custom/create', {
-        pastaType: customOptions.pastaType,
-        sauce: customOptions.sauce,
-        protein: customOptions.protein,
-        vegetables,
-        allergies: userPreferences.allergies
+      // Use Llama to suggest seasoning options
+      const response = await axios.post('/test-llama', {
+        prompt: `List 5 seasoning/herb/spice options that would pair well with ${customOptions.base}, ${customOptions.protein}, and ${vegetables.join(', ')}. Return ONLY a JSON array in this format: 
+        [{"name": "Seasoning name", "description": "Brief description"}]`
       });
       
-      const customRecipe = response.data;
-      setCurrentRecipe(customRecipe);
+      // Parse JSON from the response
+      const jsonMatch = response.data.response.match(/\[[\s\S]*\]/);
+      const seasoningOptions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
       
-      // Display custom recipe
-      const recipeText = formatRecipeText(customRecipe);
+      if (seasoningOptions.length > 0) {
+        setOptions(seasoningOptions);
+      }
+      
+      setChatState(CHAT_STATES.SELECTING_SEASONINGS);
+    } catch (error) {
+      console.error('Error selecting vegetables:', error);
+      addMessage({
+        text: `I've noted that you want to use ${vegetablesInput} as your vegetables. Now, what seasonings, herbs, or spices would you like to add?`,
+        sender: 'bot'
+      });
+      setChatState(CHAT_STATES.SELECTING_SEASONINGS);
+    }
+  };
+  
+  // Select seasonings
+  const selectSeasonings = async (seasoningsInput) => {
+    try {
+      const seasonings = seasoningsInput.split(',').map(s => s.trim());
+      
+      setCustomOptions({
+        ...customOptions,
+        seasonings
+      });
       
       addMessage({
-        text: `Here's your custom pasta recipe:\n\n${recipeText}`,
+        text: `Excellent seasoning choices! Finally, how would you like to cook this dish? (e.g., bake, grill, stir-fry, boil, steam, etc.)`,
         sender: 'bot'
+      });
+      
+      // Use Llama to suggest cooking methods
+      const response = await axios.post('/test-llama', {
+        prompt: `List 3 cooking methods that would work well for a dish with ${customOptions.base}, ${customOptions.protein}, and ${customOptions.vegetables.join(', ')}. Return ONLY a JSON array in this format: 
+        [{"name": "Cooking method", "description": "Brief description"}]`
+      });
+      
+      // Parse JSON from the response
+      const jsonMatch = response.data.response.match(/\[[\s\S]*\]/);
+      const cookingOptions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      
+      if (cookingOptions.length > 0) {
+        setOptions(cookingOptions);
+      }
+      
+      setChatState(CHAT_STATES.SELECTING_COOKING_METHOD);
+    } catch (error) {
+      console.error('Error selecting seasonings:', error);
+      addMessage({
+        text: `I've noted that you want to use ${seasoningsInput} for seasoning. Now, how would you like to cook this dish?`,
+        sender: 'bot'
+      });
+      setChatState(CHAT_STATES.SELECTING_COOKING_METHOD);
+    }
+  };
+  
+  // Select cooking method
+  const selectCookingMethod = async (cookingMethod) => {
+    try {
+      setCustomOptions({
+        ...customOptions,
+        cookingMethod
       });
       
       addMessage({
-        text: "Would you like to save this recipe or make any adjustments?",
+        text: `Creating your custom recipe with ${customOptions.base}, ${customOptions.protein}, ${customOptions.vegetables.join(', ')}, ${customOptions.seasonings.join(', ')}, cooked by ${cookingMethod}...`,
         sender: 'bot'
       });
       
-      setChatState(CHAT_STATES.RECIPE_COMPLETE);
+      // Generate custom recipe with Llama
+      const response = await axios.post('/test-llama', {
+        prompt: `Create a detailed recipe using:
+        - Base: ${customOptions.base}
+        - Protein: ${customOptions.protein}
+        - Vegetables: ${customOptions.vegetables.join(', ')}
+        - Seasonings: ${customOptions.seasonings.join(', ')}
+        - Cooking Method: ${cookingMethod}
+        ${userPreferences.allergies && userPreferences.allergies.length ? `- Avoid these ingredients due to allergies: ${userPreferences.allergies.join(', ')}` : ''}
+        
+        Provide the recipe in this JSON format:
+        {
+          "name": "Creative recipe name",
+          "ingredients": [{"ingredient": "Ingredient name", "amount": "amount", "unit": "unit"}],
+          "instructions": ["Step 1", "Step 2", ...],
+          "nutrition": {"calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number},
+          "prepTime": number,
+          "cookTime": number,
+          "servings": number,
+          "difficulty": "easy/medium/hard"
+        }`
+      });
+      
+      // Parse JSON from the response
+      const jsonMatch = response.data.response.match(/{[\s\S]*?}/);
+      const recipeJson = jsonMatch ? jsonMatch[0] : null;
+      
+      if (recipeJson) {
+        const customRecipe = JSON.parse(recipeJson);
+        setCurrentRecipe(customRecipe);
+        
+        // Display custom recipe
+        const recipeText = formatRecipeText(customRecipe);
+        
+        addMessage({
+          text: `Here's your custom recipe:\n\n${recipeText}`,
+          sender: 'bot'
+        });
+        
+        addMessage({
+          text: "Would you like to save this recipe or make any adjustments?",
+          sender: 'bot'
+        });
+        
+        setChatState(CHAT_STATES.RECIPE_COMPLETE);
+      } else {
+        throw new Error('Failed to parse custom recipe');
+      }
     } catch (error) {
       console.error('Error creating custom recipe:', error);
       addMessage({
@@ -538,7 +789,7 @@ const CustomChatInterface = () => {
   return (
     <ChatContainer>
       <ChatHeader>
-        <h2>Pasta Culinary Assistant</h2>
+        <h2>AI Culinary Assistant</h2>
       </ChatHeader>
       
       <ChatBody>

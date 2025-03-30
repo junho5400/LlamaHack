@@ -3,23 +3,27 @@ const Recipe = require('../models/Recipe');
 const Ingredient = require('../models/Ingredient');
 const { generateRecipe } = require('../services/llamaService');
 
-// Get pasta options based on cuisine
-exports.getPastaOptions = async (req, res) => {
+// Get recipe options based on cuisine and dish type
+exports.getRecipeOptions = async (req, res) => {
   try {
-    const { cuisine } = req.params;
+    const { cuisine, dishType } = req.params;
     
-    // Get pasta options from database or generate with Llama
-    const pastaOptions = await Recipe.find({ 
-      type: 'complete', 
-      tags: { $in: [cuisine.toLowerCase(), 'pasta'] } 
+    // Construct search query
+    const searchQuery = cuisine && dishType 
+      ? `${cuisine} ${dishType}` 
+      : (cuisine || dishType);
+    
+    // Get recipes from database or generate with Llama
+    const recipeOptions = await Recipe.find({ 
+      tags: { $in: [searchQuery.toLowerCase()] } 
     }).select('name nutrition prepTime difficulty');
     
-    if (pastaOptions.length > 0) {
-      return res.status(200).json(pastaOptions);
+    if (recipeOptions.length > 0) {
+      return res.status(200).json(recipeOptions);
     }
     
     // If no options in database, generate with Llama
-    const prompt = `List 5 popular pasta dishes for ${cuisine} cuisine. Return ONLY a JSON array in this format: 
+    const prompt = `List 5 popular ${searchQuery} recipes. Return ONLY a JSON array in this format: 
     [{"name": "Dish name", "description": "Brief description"}]`;
     
     const response = await generateWithLlama(prompt);
@@ -27,10 +31,10 @@ exports.getPastaOptions = async (req, res) => {
     const jsonMatch = response.match(/\[[\s\S]*\]/);
     const options = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
     
-    return res.status(200).json([...options, { name: "Create my own pasta", description: "Customize your own pasta dish" }]);
+    return res.status(200).json([...options, { name: "Create my own recipe", description: "Customize your own dish" }]);
   } catch (error) {
-    console.error('Error getting pasta options:', error);
-    return res.status(500).json({ error: 'Failed to get pasta options' });
+    console.error('Error getting recipe options:', error);
+    return res.status(500).json({ error: 'Failed to get recipe options' });
   }
 };
 
@@ -47,7 +51,7 @@ exports.getRecipeByName = async (req, res) => {
     }
     
     // Generate recipe with Llama if not in database
-    const generatedRecipe = await generateRecipe('pasta', name);
+    const generatedRecipe = await generateRecipe('any', name);
     
     // Save generated recipe to database
     const newRecipe = new Recipe(generatedRecipe);
@@ -77,7 +81,7 @@ exports.customizeRecipe = async (req, res) => {
     }
     
     // Generate customized recipe with Llama
-    const customizedRecipe = await generateRecipe('pasta', originalRecipe.name, {
+    const customizedRecipe = await generateRecipe('custom', originalRecipe.name, {
       customizations
     });
     
@@ -88,19 +92,21 @@ exports.customizeRecipe = async (req, res) => {
   }
 };
 
-// Get pasta types for custom recipe
-exports.getPastaTypes = async (req, res) => {
+// Get ingredient options by category
+exports.getIngredientOptions = async (req, res) => {
   try {
-    const pastaTypes = await Ingredient.find({ category: 'pasta' })
+    const { category } = req.params;
+    
+    const ingredientOptions = await Ingredient.find({ category })
       .select('name');
     
-    if (pastaTypes.length > 0) {
-      return res.status(200).json(pastaTypes);
+    if (ingredientOptions.length > 0) {
+      return res.status(200).json(ingredientOptions);
     }
     
-    // Generate pasta types with Llama if not in database
-    const prompt = `List 10 common types of pasta. Return ONLY a JSON array in this format: 
-    [{"name": "Pasta name", "description": "Brief description"}]`;
+    // Generate options with Llama if not in database
+    const prompt = `List 8 common ${category} ingredients. Return ONLY a JSON array in this format: 
+    [{"name": "${category} name", "description": "Brief description"}]`;
     
     const response = await generateWithLlama(prompt);
     // Parse JSON from response
@@ -109,26 +115,19 @@ exports.getPastaTypes = async (req, res) => {
     
     return res.status(200).json(options);
   } catch (error) {
-    console.error('Error getting pasta types:', error);
-    return res.status(500).json({ error: 'Failed to get pasta types' });
+    console.error(`Error getting ${req.params.category} options:`, error);
+    return res.status(500).json({ error: `Failed to get ${req.params.category} options` });
   }
 };
 
-// Get sauce options
-exports.getSauceOptions = async (req, res) => {
+// Get ingredient recommendations
+exports.getIngredientRecommendations = async (req, res) => {
   try {
-    const { pastaType } = req.params;
+    const { base, category, currentIngredients } = req.params;
     
-    const sauceOptions = await Ingredient.find({ category: 'sauce' })
-      .select('name');
-    
-    if (sauceOptions.length > 0) {
-      return res.status(200).json(sauceOptions);
-    }
-    
-    // Generate sauce options with Llama if not in database
-    const prompt = `List 8 common pasta sauces that go well with ${pastaType}. Return ONLY a JSON array in this format: 
-    [{"name": "Sauce name", "description": "Brief description"}]`;
+    // Generate recommendations with Llama
+    const prompt = `Recommend 5 ${category} options that go well with ${base} and ${currentIngredients}. Return ONLY a JSON array in this format: 
+    [{"name": "${category} name", "description": "Why it's a good match"}]`;
     
     const response = await generateWithLlama(prompt);
     // Parse JSON from response
@@ -137,50 +136,8 @@ exports.getSauceOptions = async (req, res) => {
     
     return res.status(200).json(options);
   } catch (error) {
-    console.error('Error getting sauce options:', error);
-    return res.status(500).json({ error: 'Failed to get sauce options' });
-  }
-};
-
-// Get protein recommendations
-exports.getProteinRecommendations = async (req, res) => {
-  try {
-    const { pastaType, sauce } = req.params;
-    
-    // Generate protein recommendations with Llama
-    const prompt = `Recommend 5 protein options that go well with ${pastaType} pasta and ${sauce} sauce. Return ONLY a JSON array in this format: 
-    [{"name": "Protein name", "description": "Why it's a good match"}]`;
-    
-    const response = await generateWithLlama(prompt);
-    // Parse JSON from response
-    const jsonMatch = response.match(/\[[\s\S]*\]/);
-    const options = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-    
-    return res.status(200).json(options);
-  } catch (error) {
-    console.error('Error getting protein recommendations:', error);
-    return res.status(500).json({ error: 'Failed to get protein recommendations' });
-  }
-};
-
-// Get vegetable recommendations
-exports.getVegetableRecommendations = async (req, res) => {
-  try {
-    const { pastaType, sauce, protein } = req.params;
-    
-    // Generate vegetable recommendations with Llama
-    const prompt = `Recommend 5 vegetable options that go well with ${pastaType} pasta, ${sauce} sauce, and ${protein}. Return ONLY a JSON array in this format: 
-    [{"name": "Vegetable name", "description": "Why it's a good match"}]`;
-    
-    const response = await generateWithLlama(prompt);
-    // Parse JSON from response
-    const jsonMatch = response.match(/\[[\s\S]*\]/);
-    const options = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-    
-    return res.status(200).json(options);
-  } catch (error) {
-    console.error('Error getting vegetable recommendations:', error);
-    return res.status(500).json({ error: 'Failed to get vegetable recommendations' });
+    console.error(`Error getting ${req.params.category} recommendations:`, error);
+    return res.status(500).json({ error: `Failed to get ${req.params.category} recommendations` });
   }
 };
 
@@ -188,21 +145,23 @@ exports.getVegetableRecommendations = async (req, res) => {
 exports.createCustomRecipe = async (req, res) => {
   try {
     const { 
-      pastaType, 
-      sauce, 
+      base, 
       protein, 
       vegetables, 
+      seasonings,
+      cookingMethod,
       nutritionalTargets, 
       allergies 
     } = req.body;
     
     // Generate custom recipe with Llama
     const customRecipePrompt = `
-    Create a detailed pasta recipe using:
-    - Pasta: ${pastaType}
-    - Sauce: ${sauce}
+    Create a detailed recipe using:
+    - Base: ${base}
     - Protein: ${protein}
     - Vegetables: ${vegetables.join(', ')}
+    - Seasonings: ${seasonings.join(', ')}
+    - Cooking Method: ${cookingMethod}
     ${nutritionalTargets ? `- Nutritional targets: ${JSON.stringify(nutritionalTargets)}` : ''}
     ${allergies && allergies.length ? `- Avoid these ingredients: ${allergies.join(', ')}` : ''}
     
@@ -218,26 +177,32 @@ exports.createCustomRecipe = async (req, res) => {
       "difficulty": "easy/medium/hard"
     }`;
     
-    const customRecipe = await generateRecipe('custom', 'custom', {
-      customOptions: {
-        pastaType,
-        sauce,
-        protein,
-        vegetables
-      },
-      nutritionalTargets,
-      allergies
-    });
+    const response = await generateWithLlama(customRecipePrompt);
     
-    // Save the custom recipe to database
-    const newRecipe = new Recipe({
-      ...customRecipe,
-      type: 'complete',
-      tags: ['custom', 'pasta', pastaType, sauce, protein, ...vegetables]
-    });
-    await newRecipe.save();
+    // Extract the JSON part from the response
+    const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || 
+                     response.match(/```\n([\s\S]*?)\n```/) ||
+                     response.match(/{[\s\S]*?}/);
+                     
+    const jsonString = jsonMatch ? jsonMatch[0] : response;
+    const cleanedJsonString = jsonString.replace(/```json\n|```\n|```/g, '');
     
-    return res.status(201).json(newRecipe);
+    try {
+      const customRecipe = JSON.parse(cleanedJsonString);
+      
+      // Save the custom recipe to database
+      const newRecipe = new Recipe({
+        ...customRecipe,
+        type: 'complete',
+        tags: ['custom', base, protein, ...vegetables, ...seasonings, cookingMethod]
+      });
+      await newRecipe.save();
+      
+      return res.status(201).json(newRecipe);
+    } catch (error) {
+      console.error('Error parsing Llama response:', error);
+      return res.status(500).json({ error: 'Failed to parse recipe', rawResponse: response });
+    }
   } catch (error) {
     console.error('Error creating custom recipe:', error);
     return res.status(500).json({ error: 'Failed to create custom recipe' });

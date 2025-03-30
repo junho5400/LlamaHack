@@ -4,7 +4,7 @@ require('dotenv').config();
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
 
 /**
- * Generate text using Llama 3.2 model
+ * Generate text using Llama 3 model
  * @param {string} prompt - The prompt to send to Llama
  * @param {Object} options - Additional options for generation
  * @returns {Promise<string>} - The generated text
@@ -25,6 +25,11 @@ async function generateWithLlama(prompt, options = {}) {
   }
 }
 
+/**
+ * Extract JSON from Llama response
+ * @param {string} response - Llama's raw response
+ * @returns {Object} - Parsed JSON object
+ */
 function extractJsonFromLlamaResponse(response) {
   try {
     // Try various patterns to extract JSON
@@ -53,8 +58,22 @@ async function generateRecipe(cuisine, dish, options = {}) {
   const isCustom = dish === 'custom';
   
   let prompt = isCustom 
-    ? `Create a custom ${cuisine} recipe with the following requirements:\n` 
-    : `Give me a detailed recipe for ${dish} in ${cuisine} cuisine.\n`;
+    ? `Create a custom recipe with the following requirements:\n` 
+    : `Give me a detailed recipe for ${dish}${cuisine !== 'any' ? ` in ${cuisine} cuisine` : ''}.\n`;
+    
+  // Add customization options if provided
+  if (options.customOptions) {
+    prompt += `Using these main ingredients:\n`;
+    prompt += `- Base: ${options.customOptions.base}\n`;
+    prompt += `- Protein: ${options.customOptions.protein}\n`;
+    prompt += `- Vegetables: ${options.customOptions.vegetables.join(', ')}\n`;
+    if (options.customOptions.seasonings) {
+      prompt += `- Seasonings: ${options.customOptions.seasonings.join(', ')}\n`;
+    }
+    if (options.customOptions.cookingMethod) {
+      prompt += `- Cooking Method: ${options.customOptions.cookingMethod}\n`;
+    }
+  }
     
   // Add nutritional targets if provided
   if (options.nutritionalTargets) {
