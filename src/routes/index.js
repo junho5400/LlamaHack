@@ -5,13 +5,35 @@ const {
   parseUserIntent, 
   generateRecipeSuggestions, 
   generateRecipe, 
-  getIngredientRecommendations 
+  getIngredientRecommendations,
+  processCulinaryChat // New conversation-based function
 } = require('../services/llamaService');
 
 // Test route
 router.get('/', (req, res) => {
   res.json({ message: 'Culinary Assistant API is running' });
 });
+
+// NEW ENDPOINT: Process chat messages with conversation history
+router.post('/api/chat', async (req, res) => {
+  try {
+    const { message, conversationHistory = [] } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+    
+    // Process the chat with our new function
+    const response = await processCulinaryChat(message, conversationHistory);
+    
+    res.json(response);
+  } catch (error) {
+    console.error('Error processing chat:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Legacy endpoints (kept for backward compatibility)
 
 // Parse user intent
 router.post('/api/parse-intent', async (req, res) => {
@@ -78,9 +100,17 @@ router.post('/api/ingredient-recommendations', async (req, res) => {
 // For backward compatibility
 router.post('/test-llama', async (req, res) => {
   try {
-    const prompt = req.body.prompt || 'Give me a simple pasta recipe';
-    const response = await generateWithLlama(prompt);
-    res.json({ response });
+    // Check if the request is in conversation format
+    if (req.body.messages && Array.isArray(req.body.messages)) {
+      // Process as a conversation
+      const response = await processChat(req.body.messages);
+      res.json(response);
+    } else {
+      // Legacy format - single prompt
+      const prompt = req.body.prompt || 'Give me a simple pasta recipe';
+      const response = await generateWithLlama(prompt);
+      res.json({ response });
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

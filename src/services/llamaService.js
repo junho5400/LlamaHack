@@ -66,15 +66,15 @@ const cache = new Map();
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes in milliseconds
 
 /**
- * Generate text using Together.ai API with rate limiting and retries
- * @param {string} prompt - The prompt to send to Llama
+ * Process a chat with Llama model using conversation format
+ * @param {Array} messages - Array of message objects {role, content}
  * @param {Object} options - Additional options for generation
- * @returns {Promise<string>} - The generated text
+ * @returns {Promise<Object>} - The generated response with structured data
  */
-async function generateWithLlama(prompt, options = {}) {
-  // Create a cache key from the prompt and relevant options
+async function processChat(messages, options = {}) {
+  // Create a cache key from the messages
   const cacheKey = JSON.stringify({
-    prompt: prompt.substring(0, 100), // Use a prefix of the prompt to avoid overly long keys
+    messages: messages.map(m => ({ role: m.role, content: m.content.substring(0, 100) })),
     model: options.model || LLAMA_MODEL,
     temperature: options.temperature || 0.7,
   });
@@ -83,7 +83,7 @@ async function generateWithLlama(prompt, options = {}) {
   if (cache.has(cacheKey)) {
     const cachedItem = cache.get(cacheKey);
     if (Date.now() - cachedItem.timestamp < CACHE_TTL) {
-      console.log('Using cached response for prompt:', prompt.substring(0, 50) + '...');
+      console.log('Using cached response for conversation');
       return cachedItem.response;
     } else {
       // Cache expired, remove it
@@ -98,19 +98,7 @@ async function generateWithLlama(prompt, options = {}) {
     
     while (retries <= maxRetries) {
       try {
-        console.log(`Calling Together AI API with prompt: ${prompt.substring(0, 100)}...`);
-        
-        // Format messages in the ChatML format
-        const messages = [
-          {
-            role: "system",
-            content: "You are a helpful culinary assistant that helps users find recipes, customize them, and create their own recipes."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ];
+        console.log(`Calling Together AI API with ${messages.length} messages`);
         
         const response = await axios.post(TOGETHER_API_URL, {
           model: options.model || LLAMA_MODEL,
@@ -132,13 +120,34 @@ async function generateWithLlama(prompt, options = {}) {
             response.data.choices[0].message) {
           const result = response.data.choices[0].message.content.trim();
           
+          // Process the result for structured data
+          let structuredData = null;
+          let cleanedResponse = result;
+          
+          const structuredDataMatch = result.match(/STRUCTURED_DATA: ({.*})/s);
+          if (structuredDataMatch) {
+            try {
+              structuredData = JSON.parse(structuredDataMatch[1]);
+              // Remove the structured data part from the message
+              cleanedResponse = result.replace(/STRUCTURED_DATA: ({.*})/s, '').trim();
+            } catch (error) {
+              console.error('Error parsing structured data:', error);
+            }
+          }
+          
+          const processedResponse = {
+            message: cleanedResponse,
+            structuredData,
+            raw: result
+          };
+          
           // Cache successful response
           cache.set(cacheKey, {
-            response: result,
+            response: processedResponse,
             timestamp: Date.now()
           });
           
-          return result;
+          return processedResponse;
         } else {
           console.error('Unexpected API response format:', JSON.stringify(response.data));
           throw new Error('Unexpected API response format');
@@ -177,91 +186,138 @@ async function generateWithLlama(prompt, options = {}) {
     // If we got here, all retries failed or we had a non-retryable error
     console.log('Falling back to rule-based response due to API failure');
     
-    // Implement fallback logic based on prompt content
-    return generateFallbackResponse(prompt);
+    // Implement fallback logic based on message content
+    return generateFallbackResponse(messages);
   });
 }
 
 /**
  * Generate a fallback response when API calls fail
- * @param {string} prompt - The original prompt
- * @returns {string} - A basic fallback response
+ * @param {Array} messages - Array of message objects
+ * @returns {Object} - A basic fallback response
  */
-function generateFallbackResponse(prompt) {
-  // Extract the essence of what's being asked
+function generateFallbackResponse(messages) {
+  // Extract the last user message
+  const lastUserMessage = messages
+    .filter(m => m.role === 'user')
+    .pop();
+  
+  const prompt = lastUserMessage ? lastUserMessage.content : '';
   const promptLower = prompt.toLowerCase();
   
-  // Check for common recipe-related queries
-  if (promptLower.includes('recipe') && promptLower.includes('json')) {
-    // If requesting a recipe in JSON format
-    const dishMatch = prompt.match(/recipe for ([^.?!]+)/i);
-    const dish = dishMatch ? dishMatch[1].trim() : 'a basic dish';
+  let response = {
+    message: "I'm currently experiencing connectivity issues with my knowledge service. I've saved your request and will process it as soon as possible. In the meantime, could you try a more specific query or try again in a few minutes?",
+    structuredData: null,
+    raw: null
+  };
+  
+  // Check for recipe requests
+  if (promptLower.includes('recipe') || promptLower.includes('make') || promptLower.includes('cook')) {
+    // Extract dish name if possible
+    const dishMatch = prompt.match(/(make|cook|prepare|recipe for) ([^.?!]+)/i);
+    const dish = dishMatch ? dishMatch[2].trim() : 'a dish';
     
-    // Generate a simple recipe JSON
-    return JSON.stringify({
-      name: `Simple ${dish.charAt(0).toUpperCase() + dish.slice(1)}`,
-      ingredients: [
-        { ingredient: "Main ingredient", amount: "500", unit: "g" },
-        { ingredient: "Secondary ingredient", amount: "200", unit: "g" },
-        { ingredient: "Seasoning", amount: "2", unit: "tsp" }
-      ],
-      instructions: [
-        "Prepare ingredients by washing and chopping them.",
-        "Cook main ingredients until done.",
-        "Add seasonings and serve."
-      ],
-      nutrition: {
-        calories: 350,
-        protein: 25,
-        carbs: 30,
-        fat: 15,
-        fiber: 5
-      },
-      prepTime: 15,
-      cookTime: 30,
-      servings: 4,
-      difficulty: "medium"
-    }, null, 2);
+    response.message = `I'd be happy to help you with a recipe for ${dish}. Could you tell me more about what specific variation you're looking for? For example, would you prefer a traditional recipe or something with a twist?`;
+    
+    response.structuredData = {
+      responseType: "options",
+      options: [
+        { name: `Traditional ${dish}`, description: "Classic preparation" },
+        { name: `Quick ${dish}`, description: "Fast and easy version" },
+        { name: `Healthy ${dish}`, description: "Lower calorie option" },
+        { name: "Create my own recipe", description: "Customize your own dish" }
+      ]
+    };
   }
   
-  // For parsing intents
-  if (promptLower.includes('parse') && promptLower.includes('user input')) {
-    const userInputMatch = prompt.match(/User input:\s*"([^"]*)"/);
-    if (userInputMatch && userInputMatch[1]) {
-      const userInput = userInputMatch[1].toLowerCase();
-      
-      // Basic intent detection
-      let intent = "search_recipe";
-      if (userInput.includes('make') || userInput.includes('how')) {
-        intent = "search_recipe";
-      } else if (userInput.includes('spicy') || userInput.includes('less') || userInput.includes('more')) {
-        intent = "customize_recipe";
-      }
-      
-      // Extract ingredients
-      const ingredients = [];
-      if (userInput.includes('chicken')) ingredients.push('chicken');
-      if (userInput.includes('beef')) ingredients.push('beef');
-      if (userInput.includes('pasta')) ingredients.push('pasta');
-      
-      return JSON.stringify({
-        intent: intent,
-        specificDish: userInput,
-        ingredients: ingredients
-      }, null, 2);
-    }
-  }
-  
-  // Generic fallback
-  return "I'm currently experiencing connectivity issues with my knowledge service. I've saved your request and will process it as soon as possible. In the meantime, could you try a more specific query or try again in a few minutes?";
+  return response;
 }
 
 /**
- * Parse intent from user input
- * @param {string} userInput - Raw user input
- * @returns {Promise<Object>} - Structured intent data
+ * Process user input for culinary assistant chat
+ * @param {string} userInput - User's message
+ * @param {Array} conversationHistory - Previous messages
+ * @returns {Promise<Object>} - The processed response
  */
-async function parseUserIntent(userInput) {
+async function processCulinaryChat(userInput, conversationHistory = []) {
+  // System instructions for culinary assistant
+  const systemInstructions = `
+    You are a culinary assistant that helps users find recipes, customize them, and create their own recipes.
+    
+    Follow this workflow:
+    1. When a user asks for a type of dish, offer 4-5 specific options, always including "Create my own recipe"
+    2. If they select a specific recipe, provide detailed ingredients, steps, and nutrition info
+    3. If they want to customize a recipe, apply their requested changes
+    4. If they choose "Create my own recipe":
+       a. First ask about nutritional targets
+       b. Then ask about main ingredients/base
+       c. Then ask about protein
+       d. Then ask about vegetables
+       e. Then ask about seasonings
+       f. Finally ask about cooking method
+    5. For custom recipes, recommend ingredients that pair well with their previous choices
+    6. Always provide complete cooking instructions and nutrition details
+    
+    Always offer contextual recommendations based on the user's previous choices.
+    
+    In your responses, you should also include structured data in the following format to help the UI:
+    
+    STRUCTURED_DATA: {
+      "responseType": "options" | "recipe" | "custom_step" | "general",
+      "options": [{"name": "Option 1", "description": "Description"}, ...] (if responseType is "options"),
+      "recipe": { 
+        "name": "Recipe Name",
+        "ingredients": [{"ingredient": "Ingredient name", "amount": "amount", "unit": "unit"}],
+        "instructions": ["Step 1", "Step 2", ...],
+        "nutrition": {"calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number},
+        "prepTime": number,
+        "cookTime": number,
+        "servings": number
+      } (if responseType is "recipe"),
+      "currentStep": "nutrition" | "base" | "protein" | "vegetables" | "seasonings" | "cookingMethod" (if responseType is "custom_step"),
+      "recommendations": [{"name": "Recommendation", "reason": "Reason"}, ...] (if applicable)
+    }
+    
+    Put this structured data at the END of your response, it will be removed before showing to the user.
+  `;
+  
+  // Format the messages
+  const messages = [
+    { role: 'system', content: systemInstructions },
+    ...conversationHistory,
+    { role: 'user', content: userInput }
+  ];
+  
+  // Call processChat with the messages
+  return processChat(messages, {
+    temperature: 0.7,
+    max_tokens: 1500
+  });
+}
+
+// Old functions kept for backward compatibility (legacy functions)
+async function generateWithLlama(prompt, options = {}) {
+  // Format messages in the ChatML format
+  const messages = [
+    {
+      role: "system",
+      content: "You are a helpful culinary assistant that helps users find recipes, customize them, and create their own recipes."
+    },
+    {
+      role: "user",
+      content: prompt
+    }
+  ];
+  
+  // Use processChat to handle the request
+  const response = await processChat(messages, options);
+  
+  // Return just the message text for backward compatibility
+  return response.message;
+}
+
+// Keep other legacy functions
+const parseUserIntent = async (userInput) => {
   try {
     const prompt = `
 I need you to parse the following user input for a cooking assistant and extract the key information.
@@ -305,6 +361,19 @@ Only include fields that are clearly mentioned or implied in the user input.
     
     const lowerInput = userInput.toLowerCase();
     
+    // Basic intent detection
+    let intent = 'search_recipe';
+    if (lowerInput.includes('customize') || lowerInput.includes('change') || 
+        lowerInput.includes('less') || lowerInput.includes('more') || 
+        lowerInput.includes('without') || lowerInput.includes('add')) {
+      intent = 'customize_recipe';
+    } else if (lowerInput.includes('create my own') || lowerInput.includes('make my own')) {
+      intent = 'create_custom';
+    } else if (lowerInput.includes('how') || lowerInput.includes('what') || 
+               lowerInput.includes('why') || lowerInput.includes('when')) {
+      intent = 'general_question';
+    }
+    
     // Basic ingredient detection
     const ingredients = [];
     if (lowerInput.includes('chicken')) ingredients.push('chicken');
@@ -323,7 +392,7 @@ Only include fields that are clearly mentioned or implied in the user input.
     if (lowerInput.includes('french')) cuisine = 'french';
     
     return {
-      intent: 'search_recipe',
+      intent: intent,
       specificDish: userInput,
       ingredients: ingredients,
       cuisine: cuisine
@@ -336,14 +405,12 @@ Only include fields that are clearly mentioned or implied in the user input.
       specificDish: userInput
     };
   }
-}
+};
 
-/**
- * Generate recipe suggestions based on user intent
- * @param {Object} intent - Parsed user intent
- * @returns {Promise<Array>} - List of recipe suggestions
- */
-async function generateRecipeSuggestions(intent) {
+// Keep the other legacy functions for backwards compatibility
+const generateRecipeSuggestions = async (intent) => {
+  // Implementation using generateWithLlama
+  // ...same as before
   let prompt = 'List 5 delicious ';
   
   if (intent.cuisine) {
@@ -391,16 +458,11 @@ Return ONLY a JSON array in this format:
     console.error('Error parsing recipe suggestions:', error);
     return [];
   }
-}
+};
 
-/**
- * Generate a recipe based on user inputs
- * @param {string} cuisine - Type of cuisine
- * @param {string} dish - Specific dish or "custom"
- * @param {Object} options - Additional options (customizations, nutritional targets)
- * @returns {Promise<Object>} - The generated recipe
- */
-async function generateRecipe(cuisine, dish, options = {}) {
+const generateRecipe = async (cuisine, dish, options = {}) => {
+  // Implementation using generateWithLlama
+  // ...same as before
   try {
     let prompt = '';
     
@@ -538,15 +600,11 @@ async function generateRecipe(cuisine, dish, options = {}) {
     console.error('Error generating recipe:', error);
     return createFallbackRecipe(dish, cuisine);
   }
-}
+};
 
-/**
- * Create a fallback recipe when API or parsing fails
- * @param {string} dish - The dish name
- * @param {string} cuisine - The cuisine type
- * @returns {Object} - A basic recipe object
- */
-function createFallbackRecipe(dish, cuisine) {
+const createFallbackRecipe = (dish, cuisine) => {
+  // Fallback recipe creation
+  // ...same as before
   const capitalizedDish = dish.charAt(0).toUpperCase() + dish.slice(1);
   const recipeName = cuisine !== 'any' ? `${cuisine.charAt(0).toUpperCase() + cuisine.slice(1)} ${capitalizedDish}` : capitalizedDish;
   
@@ -601,15 +659,11 @@ function createFallbackRecipe(dish, cuisine) {
     servings: 4,
     difficulty: "medium"
   };
-}
+};
 
-/**
- * Get ingredient recommendations based on current selections
- * @param {Object} currentSelections - Current ingredient selections
- * @param {string} categoryToRecommend - Category to get recommendations for
- * @returns {Promise<Array>} - List of recommended ingredients
- */
-async function getIngredientRecommendations(currentSelections, categoryToRecommend) {
+const getIngredientRecommendations = async (currentSelections, categoryToRecommend) => {
+  // Implementation using generateWithLlama
+  // ...same as before
   const prompt = `
 Based on these selected ingredients:
 ${Object.entries(currentSelections)
@@ -642,12 +696,13 @@ Return ONLY a JSON array in this format:
     console.error('Error parsing ingredient recommendations:', error);
     return [];
   }
-}
+};
 
 module.exports = {
   generateWithLlama,
   parseUserIntent,
   generateRecipeSuggestions,
   generateRecipe,
-  getIngredientRecommendations
+  getIngredientRecommendations,
+  processCulinaryChat // New function for the conversational approach
 };
