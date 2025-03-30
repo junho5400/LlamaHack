@@ -25,6 +25,23 @@ async function generateWithLlama(prompt, options = {}) {
   }
 }
 
+function extractJsonFromLlamaResponse(response) {
+  try {
+    // Try various patterns to extract JSON
+    const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || 
+                     response.match(/```\n([\s\S]*?)\n```/) ||
+                     response.match(/{[\s\S]*?}/);
+                     
+    const jsonString = jsonMatch ? jsonMatch[0] : response;
+    const cleanedJsonString = jsonString.replace(/```json\n|```\n|```/g, '');
+    
+    return JSON.parse(cleanedJsonString);
+  } catch (error) {
+    console.error('Error parsing Llama response:', error);
+    throw new Error('Failed to parse recipe response from Llama');
+  }
+}
+
 /**
  * Generate a recipe based on user inputs
  * @param {string} cuisine - Type of cuisine
@@ -69,15 +86,7 @@ async function generateRecipe(cuisine, dish, options = {}) {
   const response = await generateWithLlama(prompt);
   
   try {
-    // Extract the JSON part from the response
-    const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || 
-                     response.match(/```\n([\s\S]*?)\n```/) ||
-                     response.match(/{[\s\S]*?}/);
-                     
-    const jsonString = jsonMatch ? jsonMatch[0] : response;
-    const cleanedJsonString = jsonString.replace(/```json\n|```\n|```/g, '');
-    
-    return JSON.parse(cleanedJsonString);
+    return extractJsonFromLlamaResponse(response);
   } catch (error) {
     console.error('Error parsing Llama response:', error);
     return { error: 'Failed to parse recipe', rawResponse: response };
@@ -86,5 +95,6 @@ async function generateRecipe(cuisine, dish, options = {}) {
 
 module.exports = {
   generateWithLlama,
-  generateRecipe
+  generateRecipe,
+  extractJsonFromLlamaResponse
 };
