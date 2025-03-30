@@ -198,67 +198,51 @@ exports.getIngredientRecommendations = async (req, res) => {
 // Create custom recipe
 exports.createCustomRecipe = async (req, res) => {
   try {
+    console.log("Received recipe data:", req.body);
+    
+    // Extract recipe data from request body
     const { 
-      base, 
-      protein, 
-      vegetables, 
-      seasonings,
-      cookingMethod,
-      nutritionalTargets, 
-      allergies 
+      name, 
+      ingredients, 
+      instructions,
+      nutrition,
+      prepTime,
+      cookTime,
+      servings,
+      difficulty,
+      type
     } = req.body;
     
-    // Generate custom recipe with Llama
-    const customRecipePrompt = `
-    Create a detailed recipe using:
-    - Base: ${base}
-    - Protein: ${protein}
-    - Vegetables: ${vegetables.join(', ')}
-    - Seasonings: ${seasonings.join(', ')}
-    - Cooking Method: ${cookingMethod}
-    ${nutritionalTargets ? `- Nutritional targets: ${JSON.stringify(nutritionalTargets)}` : ''}
-    ${allergies && allergies.length ? `- Avoid these ingredients: ${allergies.join(', ')}` : ''}
+    // Create a list of tags from the recipe properties
+    // But make sure to check if each property exists before using it
+    let tags = ['custom'];
     
-    Provide the recipe in this JSON format:
-    {
-      "name": "Recipe Name",
-      "ingredients": [{"ingredient": "Ingredient name", "amount": "amount", "unit": "unit"}],
-      "instructions": ["Step 1", "Step 2", ...],
-      "nutrition": {"calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number},
-      "prepTime": number,
-      "cookTime": number,
-      "servings": number,
-      "difficulty": "easy/medium/hard"
-    }`;
+    // Do NOT try to call .join() on potentially undefined variables
     
-    const response = await generateWithLlama(customRecipePrompt);
+    // Create the recipe
+    const newRecipe = new Recipe({
+      name: name || 'Custom Recipe',
+      ingredients: ingredients || [],
+      instructions: instructions || [],
+      nutrition: nutrition || { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
+      prepTime: prepTime || 30,
+      cookTime: cookTime || 30,
+      servings: servings || 4,
+      difficulty: difficulty || 'medium',
+      type: type || 'complete',
+      tags: tags
+    });
     
-    // Extract the JSON part from the response
-    const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || 
-                     response.match(/```\n([\s\S]*?)\n```/) ||
-                     response.match(/{[\s\S]*?}/);
-                     
-    const jsonString = jsonMatch ? jsonMatch[0] : response;
-    const cleanedJsonString = jsonString.replace(/```json\n|```\n|```/g, '');
+    // Save the recipe
+    await newRecipe.save();
     
-    try {
-      const customRecipe = JSON.parse(cleanedJsonString);
-      
-      // Save the custom recipe to database
-      const newRecipe = new Recipe({
-        ...customRecipe,
-        type: 'complete',
-        tags: ['custom', base, protein, ...vegetables, ...seasonings, cookingMethod]
-      });
-      await newRecipe.save();
-      
-      return res.status(201).json(newRecipe);
-    } catch (error) {
-      console.error('Error parsing Llama response:', error);
-      return res.status(500).json({ error: 'Failed to parse recipe', rawResponse: response });
-    }
+    return res.status(201).json(newRecipe);
   } catch (error) {
     console.error('Error creating custom recipe:', error);
-    return res.status(500).json({ error: 'Failed to create custom recipe' });
+    console.error('Recipe data received:', req.body);
+    return res.status(500).json({ 
+      error: 'Failed to create custom recipe', 
+      details: error.message 
+    });
   }
 };

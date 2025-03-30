@@ -256,7 +256,7 @@ const CustomChatInterface = ({ user }) => {
   // Add a function to save recipes
   // Add console logs to trace the issue
   const saveRecipe = async (recipe) => {
-  console.log("Attempting to save recipe:", recipe);
+  console.log("Attempting to save recipe:", JSON.stringify(recipe, null, 2));
   
   const userString = localStorage.getItem('user');
   
@@ -364,8 +364,7 @@ const CustomChatInterface = ({ user }) => {
   // Process and save recipe from bot message
 const processAndSaveRecipe = (botMessage) => {
   try {
-    console.log("Processing message for recipe:", botMessage);
-    
+    console.log("Processing message for recipe:", botMessage);      
     // Try to extract structured data from the message
     const structuredDataMatch = botMessage.text.match(/STRUCTURED_DATA: ({.*})/s);
     
@@ -465,8 +464,7 @@ const processAndSaveRecipe = (botMessage) => {
     }
     
     // Save the recipe
-    this.saveRecipe(recipe);
-    
+    saveRecipe(recipe);
   } catch (error) {
     console.error('Error processing recipe:', error);
     setErrorMessage('Failed to process recipe data');
