@@ -9,14 +9,37 @@ const PreferencesContainer = styled.div`
   padding: 20px;
 `;
 
+const Form = styled.form`
+  display: flex;
+  flex-direction: column;
+`;
+
 const SectionTitle = styled.h3`
   color: #4a6fa5;
   margin: 20px 0 10px;
 `;
 
-const Form = styled.form`
+const InputContainer = styled.div`
   display: flex;
-  flex-direction: column;
+  margin-bottom: 15px;
+`;
+
+const Input = styled.input`
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 16px;
+`;
+
+const AddButton = styled.button`
+  background-color: #4a6fa5;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 10px 15px;
+  margin-left: 10px;
+  cursor: pointer;
 `;
 
 const TagsContainer = styled.div`
@@ -44,38 +67,6 @@ const DeleteButton = styled.button`
   font-size: 16px;
 `;
 
-const InputContainer = styled.div`
-  display: flex;
-  margin-bottom: 15px;
-`;
-
-const Input = styled.input`
-  flex: 1;
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 16px;
-  
-  &:focus {
-    outline: none;
-    border-color: #4a6fa5;
-  }
-`;
-
-const AddButton = styled.button`
-  background-color: #4a6fa5;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 10px 15px;
-  margin-left: 10px;
-  cursor: pointer;
-  
-  &:hover {
-    background-color: #3a5a8f;
-  }
-`;
-
 const SaveButton = styled.button`
   background-color: #4a6fa5;
   color: white;
@@ -85,29 +76,18 @@ const SaveButton = styled.button`
   font-size: 16px;
   cursor: pointer;
   margin-top: 20px;
-  
-  &:hover {
-    background-color: #3a5a8f;
-  }
-  
-  &:disabled {
-    background-color: #cccccc;
-    cursor: not-allowed;
-  }
 `;
 
-const Message = styled.div`
+const MessageBox = styled.div`
   padding: 10px;
   text-align: center;
   margin-top: 15px;
   border-radius: 4px;
-  
-  ${props => props.type === 'success' 
-    ? 'background-color: #dff0d8; color: #3c763d;' 
-    : 'background-color: #f2dede; color: #a94442;'}
+  background-color: ${props => props.type === 'success' ? '#dff0d8' : '#f2dede'};
+  color: ${props => props.type === 'success' ? '#3c763d' : '#a94442'};
 `;
 
-const Preferences = ({ userId }) => {
+const Preferences = () => {
   const [allergies, setAllergies] = useState([]);
   const [dietaryRestrictions, setDietaryRestrictions] = useState([]);
   const [favoriteIngredients, setFavoriteIngredients] = useState([]);
@@ -118,16 +98,33 @@ const Preferences = ({ userId }) => {
   const [newFavoriteIngredient, setNewFavoriteIngredient] = useState('');
   const [newDislikedIngredient, setNewDislikedIngredient] = useState('');
   
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
+  
+  // Get user ID from localStorage
+  const getUserId = () => {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) return null;
+    
+    try {
+      const user = JSON.parse(userStr);
+      return user.id;
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+      return null;
+    }
+  };
   
   // Fetch user preferences
   useEffect(() => {
     const fetchPreferences = async () => {
       try {
-        const response = await axios.get(`/auth/me`);
+        console.log("Fetching preferences");
+        const response = await axios.get('/auth/me');
+        console.log("Auth response:", response.data);
+        
         const { preferences } = response.data.user;
+        console.log("User preferences:", preferences);
         
         if (preferences) {
           setAllergies(preferences.allergies || []);
@@ -141,19 +138,24 @@ const Preferences = ({ userId }) => {
           text: 'Failed to load preferences. Please try again later.', 
           type: 'error' 
         });
-      } finally {
-        setIsLoading(false);
       }
     };
     
     fetchPreferences();
-  }, [userId]);
+  }, []);
   
   // Save preferences
   const handleSave = async (e) => {
     e.preventDefault();
     setIsSaving(true);
     setMessage({ text: '', type: '' });
+    
+    const userId = getUserId();
+    if (!userId) {
+      setMessage({ text: 'You must be logged in to save preferences', type: 'error' });
+      setIsSaving(false);
+      return;
+    }
     
     try {
       await axios.put(`/users/${userId}/preferences`, {
@@ -227,10 +229,6 @@ const Preferences = ({ userId }) => {
   const removeDislikedIngredient = (ingredient) => {
     setDislikedIngredients(dislikedIngredients.filter(i => i !== ingredient));
   };
-  
-  if (isLoading) {
-    return <div>Loading preferences...</div>;
-  }
   
   return (
     <PreferencesContainer>
@@ -319,9 +317,9 @@ const Preferences = ({ userId }) => {
         </SaveButton>
         
         {message.text && (
-          <Message type={message.type}>
+          <MessageBox type={message.type}>
             {message.text}
-          </Message>
+          </MessageBox>
         )}
       </Form>
     </PreferencesContainer>

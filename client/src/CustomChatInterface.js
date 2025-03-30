@@ -255,11 +255,16 @@ const CustomChatInterface = ({ user }) => {
 
   // Add a function to save recipes
   const saveRecipe = async (recipe) => {
-    if (!user) {
+    // Get user directly from localStorage instead of relying on props
+    const userString = localStorage.getItem('user');
+    
+    if (!userString) {
       setErrorMessage('Please log in to save recipes');
       setTimeout(() => setErrorMessage(''), 3000);
       return;
     }
+    
+    const localUser = JSON.parse(userString);
     
     try {
       // First check if the recipe has an ID (from the database)
@@ -270,7 +275,7 @@ const CustomChatInterface = ({ user }) => {
       }
       
       // Now save it to the user's collection
-      await axios.post(`/users/${user.id}/recipes/${recipe._id}`);
+      await axios.post(`/users/${localUser.id}/recipes/${recipe._id}`);
       setSuccessMessage('Recipe saved successfully!');
       
       // Clear success message after 3 seconds
@@ -328,7 +333,102 @@ const CustomChatInterface = ({ user }) => {
   const addMessage = (message) => {
     setMessages((prevMessages) => [...prevMessages, message]);
   };
-
+  // Process and save recipe from bot message
+const processAndSaveRecipe = (botMessage) => {
+  try {
+    console.log("Processing message for recipe:", botMessage);
+    
+    // Try to extract structured data from the message
+    const structuredDataMatch = botMessage.text.match(/STRUCTURED_DATA: ({.*})/s);
+    
+    let recipe = null;
+    
+    if (structuredDataMatch) {
+      try {
+        // Try to parse the structured data
+        const dataStr = structuredDataMatch[1];
+        console.log("Found structured data:", dataStr);
+        
+        // Parse the JSON if possible
+        const structuredData = JSON.parse(dataStr);
+        
+        if (structuredData.responseType === "recipe" && structuredData.recipe) {
+          recipe = structuredData.recipe;
+        }
+      } catch (error) {
+        console.error('Error parsing structured data:', error);
+      }
+    }
+    
+    // If we couldn't get structured data, create a recipe from the message text
+    if (!recipe) {
+      console.log("Creating recipe from text");
+      // Extract ingredients and steps from the text
+      const lines = botMessage.text.split('\n');
+      const ingredientLines = [];
+      const instructionLines = [];
+      
+      let section = null;
+      for (const line of lines) {
+        if (line.includes('Ingredients:')) {
+          section = 'ingredients';
+        } else if (line.includes('Steps:') || line.includes('Instructions:')) {
+          section = 'instructions';
+        } else if (section === 'ingredients' && line.trim().startsWith('-')) {
+          ingredientLines.push(line.trim().substring(1).trim());
+        } else if (section === 'instructions' && 
+                  (line.trim().match(/^\d+\./) || line.trim().match(/^[a-zA-Z]+:/))) {
+          instructionLines.push(line.trim().replace(/^\d+\.\s*/, '').replace(/^[a-zA-Z]+:\s*/, ''));
+        }
+      }
+      
+      // Get the title (assuming it's in the first few lines)
+      let title = "Custom Recipe";
+      for (let i = 0; i < 3 && i < lines.length; i++) {
+        if (lines[i].includes('**') && !lines[i].includes('Ingredients') && !lines[i].includes('Steps')) {
+          title = lines[i].replace(/\*\*/g, '').trim();
+          break;
+        }
+      }
+      
+      // Map ingredient strings to required format
+      const formattedIngredients = ingredientLines.map(ingredient => {
+        return {
+          ingredient: ingredient,
+          amount: "1", 
+          unit: ""
+        };
+      });
+      
+      // Create recipe object
+      recipe = {
+        name: title,
+        ingredients: formattedIngredients,
+        instructions: instructionLines,
+        nutrition: {
+          calories: 0,
+          protein: 0,
+          carbs: 0,
+          fat: 0
+        },
+        prepTime: 30,
+        cookTime: 30,
+        servings: 4,
+        difficulty: "medium"
+      };
+      
+      console.log("Created recipe:", recipe);
+    }
+    
+    // Now save the recipe
+    saveRecipe(recipe);
+    
+  } catch (error) {
+    console.error('Error processing recipe:', error);
+    setErrorMessage('Failed to process recipe data');
+    setTimeout(() => setErrorMessage(''), 3000);
+  }
+};
   // Process user input using LLM
   const processUserInput = async (text) => {
     // Show thinking indicator
@@ -526,50 +626,115 @@ const renderRecipe = () => {
       <ChatHeader>
         <h2>AI Culinary Assistant</h2>
       </ChatHeader>
-      
-      <ChatBody>
-        {messages.map((message, index) => (
-          !message.isThinking && (
-            <MessageBubble key={index} isUser={message.sender === 'user'}>
-              {message.text}
-            </MessageBubble>
-          )
-        ))}
-        {isThinking && (
-          <MessageBubble isUser={false}>
-            Thinking...
-          </MessageBubble>
-        )}
-        {currentRecipe && renderRecipe()}
-        {renderOptions()}
-        {errorMessage && (
-          <ErrorNotification>
-            {errorMessage}
-          </ErrorNotification>
-        )}
-        {successMessage && (
-          <SuccessNotification>
-            {successMessage}
-          </SuccessNotification>
-        )}
-        <div ref={messagesEndRef} />
-      </ChatBody>
-      
-      <ChatFooter>
-        <MessageInput
-          type="text"
-          placeholder="Type your message here..."
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          onKeyPress={(e) => {
-            if (e.key === 'Enter') {
-              handleSend();
-            }
-          }}
-        />
-        <SendButton onClick={handleSend}>Send</SendButton>
-      </ChatFooter>
-    </ChatContainer>
+      <div style={{
+    backgroundColor: '#f5f5f5', 
+    padding: '10px', 
+    borderRadius: '5px',
+    margin: '10px 0',
+    display: 'flex',
+    justifyContent: 'space-between'
+  }}>
+    <div>
+      <button 
+        onClick={() => {
+          const lastBotMessage = messages
+            .filter(msg => msg.sender === 'bot')
+            .pop();
+            
+          if (lastBotMessage) {
+            processAndSaveRecipe(lastBotMessage);
+          } else {
+            setErrorMessage('No recipe to save');
+            setTimeout(() => setErrorMessage(''), 3000);
+          }
+        }}
+        style={{
+          backgroundColor: '#4a6fa5',
+          color: 'white',
+          border: 'none',
+          borderRadius: '4px',
+          padding: '8px 16px',
+          cursor: 'pointer',
+          marginRight: '10px'
+        }}
+      >
+        Save Last Recipe
+      </button>
+    </div>
+    <div>
+      <a 
+        href="/preferences"
+        style={{
+          backgroundColor: '#6c757d',
+          color: 'white',
+          border: 'none',
+          borderRadius: '4px',
+          padding: '8px 16px',
+          textDecoration: 'none',
+          marginRight: '10px'
+        }}
+      >
+        Manage Preferences
+      </a>
+      <a 
+        href="/recipes"
+        style={{
+          backgroundColor: '#6c757d',
+          color: 'white',
+          border: 'none',
+          borderRadius: '4px',
+          padding: '8px 16px',
+          textDecoration: 'none'
+        }}
+      >
+        View Saved Recipes
+      </a>
+    </div>
+  </div>
+  <ChatBody>
+    {messages.map((message, index) => (
+      !message.isThinking && (
+        <MessageBubble key={index} isUser={message.sender === 'user'}>
+          {message.text}
+        </MessageBubble>
+      )
+    ))}
+    {isThinking && (
+      <MessageBubble isUser={false}>
+        Thinking...
+      </MessageBubble>
+    )}
+    {currentRecipe && renderRecipe()}
+    {renderOptions()}
+    {/* Remove the duplicate action bar that was here */}
+    {errorMessage && (
+      <ErrorNotification>
+        {errorMessage}
+      </ErrorNotification>
+    )}
+    {successMessage && (
+      <SuccessNotification>
+        {successMessage}
+      </SuccessNotification>
+    )}
+    <div ref={messagesEndRef} />
+  </ChatBody>
+  
+  <ChatFooter>
+    <MessageInput
+      type="text"
+      placeholder="Type your message here..."
+      value={inputText}
+      onChange={(e) => setInputText(e.target.value)}
+      onKeyPress={(e) => {
+        if (e.key === 'Enter') {
+          handleSend();
+        }
+      }}
+    />
+    <SendButton onClick={handleSend}>Send</SendButton>
+  </ChatFooter>
+</ChatContainer>
   );
 };
 
