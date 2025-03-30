@@ -1,23 +1,27 @@
 const express = require('express');
+const dotenv = require('dotenv');
 const cors = require('cors');
-const helmet = require('helmet');
-require('dotenv').config();
+const connectDB = require('./config/database');
 
+// Load environment variables
+dotenv.config();
+
+// Initialize Express
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
-app.use(helmet());
 app.use(express.json());
-app.use(express.static('public'));
+
+// Connect to database
+connectDB();
 
 // Routes
-app.get('/', (req, res) => {
-  res.send('LlamaHack Culinary Assistant API is running!');
-});
+app.use('/', require('./routes/index'));
 
 // Start server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Llama API host: ${process.env.OLLAMA_HOST || 'http://localhost:11434'}`);
 });
