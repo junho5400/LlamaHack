@@ -327,28 +327,50 @@ const CustomChatInterface = ({ user }) => {
   };
 
   // Initial greeting when component mounts
-  useEffect(() => {
-    addMessage({
-      text: 'Hello! I\'m your culinary assistant. What type of cuisine or dish would you like to make today?',
-      sender: 'bot'
-    });
-  }, []);
+  // Initial greeting when component mounts
+useEffect(() => {
+  let initialMessage = 'Hello! I\'m your culinary assistant. What type of cuisine or dish would you like to make today?';
+  
+  if (user && user.preferences) {
+    const hasPreferences = (
+      (user.preferences.allergies && user.preferences.allergies.length > 0) ||
+      (user.preferences.dietaryRestrictions && user.preferences.dietaryRestrictions.length > 0) ||
+      (user.preferences.favoriteIngredients && user.preferences.favoriteIngredients.length > 0) ||
+      (user.preferences.dislikedIngredients && user.preferences.dislikedIngredients.length > 0)
+    );
+    
+    if (hasPreferences) {
+      initialMessage = `Hello! I'm your culinary assistant. I've loaded your dietary preferences and will take them into account when suggesting recipes. What type of cuisine or dish would you like to make today?`;
+    }
+  }
+  
+  addMessage({
+    text: initialMessage,
+    sender: 'bot'
+  });
+}, []);
 
   useEffect(() => {
     if (user && user.preferences) {
-      // Create a temporary variable to store the modified instructions
+      // Create a more structured format for the AI to understand
       const userPreferencesText = `
-  
+    
   User Preferences:
-  ${user.preferences.allergies?.length ? `Allergies: ${user.preferences.allergies.join(', ')}` : ''}
-  ${user.preferences.dietaryRestrictions?.length ? `Dietary Restrictions: ${user.preferences.dietaryRestrictions.join(', ')}` : ''}
-  ${user.preferences.favoriteIngredients?.length ? `Favorite Ingredients: ${user.preferences.favoriteIngredients.join(', ')}` : ''}
-  ${user.preferences.dislikedIngredients?.length ? `Disliked Ingredients: ${user.preferences.dislikedIngredients.join(', ')}` : ''}`;
+  ${user.preferences.allergies?.length ? `- ALLERGIES: ${user.preferences.allergies.join(', ')}. The AI MUST avoid suggesting recipes with these ingredients.` : ''}
+  ${user.preferences.dietaryRestrictions?.length ? `- DIETARY RESTRICTIONS: ${user.preferences.dietaryRestrictions.join(', ')}. The AI MUST respect these restrictions in recommendations.` : ''}
+  ${user.preferences.favoriteIngredients?.length ? `- FAVORITE INGREDIENTS: ${user.preferences.favoriteIngredients.join(', ')}. The AI SHOULD prioritize recipes with these ingredients when possible.` : ''}
+  ${user.preferences.dislikedIngredients?.length ? `- DISLIKED INGREDIENTS: ${user.preferences.dislikedIngredients.join(', ')}. The AI SHOULD avoid recipes with these ingredients unless specifically requested.` : ''}
   
+  IMPORTANT: When making recipe suggestions, ALWAYS take these preferences into account. Explicitly mention when a recipe suggestion aligns with user's favorite ingredients or avoids their allergies/restrictions.`;
+    
       // Only modify if we have actual preferences
       if (userPreferencesText.trim() !== 'User Preferences:') {
         // Set the modified system instructions to include preferences
-        setSystemInstructions(prevInstructions => prevInstructions + userPreferencesText);
+        setSystemInstructions(prevInstructions => {
+          return prevInstructions + userPreferencesText;
+        });
+        
+        console.log("Updated system instructions with user preferences:", userPreferencesText);
       }
     }
   }, [user]);
@@ -357,6 +379,7 @@ const CustomChatInterface = ({ user }) => {
   const addMessage = (message) => {
     setMessages((prevMessages) => [...prevMessages, message]);
   };
+  // Process and save recipe from bot message
   // Process and save recipe from bot message
   // Process and save recipe from bot message
 const processAndSaveRecipe = (botMessage) => {
@@ -382,7 +405,7 @@ const processAndSaveRecipe = (botMessage) => {
       }
     }
     
-    // If we couldn't extract structured data, extract it from the message text
+    // If structured data doesn't have a recipe, extract it from the message text
     if (!recipe) {
       console.log("Creating recipe from text");
       
@@ -423,7 +446,7 @@ const processAndSaveRecipe = (botMessage) => {
         });
       }
       
-      // If no ingredients were extracted, add a default one
+      // If no ingredients were found, add a default one
       if (ingredients.length === 0) {
         ingredients.push({
           amount: "1",
@@ -448,7 +471,7 @@ const processAndSaveRecipe = (botMessage) => {
         });
       }
       
-      // If no instructions were extracted, add a default one
+      // If no instructions were found, add a default one
       if (instructions.length === 0) {
         instructions.push("Combine all ingredients and cook until done.");
       }
