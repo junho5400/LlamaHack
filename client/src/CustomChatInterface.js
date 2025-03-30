@@ -256,70 +256,66 @@ const CustomChatInterface = ({ user }) => {
   // Add a function to save recipes
   // Add console logs to trace the issue
   const saveRecipe = async (recipe) => {
-  console.log("Attempting to save recipe:", JSON.stringify(recipe, null, 2));
-  
-  const userString = localStorage.getItem('user');
-  
-  if (!userString) {
-    setErrorMessage('Please log in to save recipes');
-    setTimeout(() => setErrorMessage(''), 3000);
-    return;
-  }
-  
-  const localUser = JSON.parse(userString);
-  console.log("User:", localUser);
-  
-  try {
-    // Check if recipe is valid
-    if (!recipe || !recipe.name || !recipe.ingredients || !recipe.instructions) {
-      throw new Error('Invalid recipe format');
+    console.log("Attempting to save recipe:", JSON.stringify(recipe, null, 2));
+    
+    const userString = localStorage.getItem('user');
+    
+    if (!userString) {
+      setErrorMessage('Please log in to save recipes');
+      setTimeout(() => setErrorMessage(''), 3000);
+      return;
     }
     
-    // Make sure ingredients are in the correct format
-    const formattedIngredients = recipe.ingredients.map(ingredient => {
-      // If ingredient is a string, convert to object
-      if (typeof ingredient === 'string') {
-        return {
-          ingredient: ingredient,
-          amount: "1",
-          unit: ""
-        };
+    const localUser = JSON.parse(userString);
+    
+    try {
+      // Check if recipe is valid
+      if (!recipe || !recipe.name || !recipe.ingredients || !recipe.instructions) {
+        throw new Error('Invalid recipe format');
       }
-      return ingredient;
-    });
-    
-    // Ensure recipe has all required fields
-    const completeRecipe = {
-      name: recipe.name,
-      ingredients: formattedIngredients,
-      instructions: Array.isArray(recipe.instructions) ? recipe.instructions : [recipe.instructions],
-      nutrition: recipe.nutrition || { calories: 0, protein: 0, carbs: 0, fat: 0 },
-      prepTime: recipe.prepTime || 30,
-      cookTime: recipe.cookTime || 30,
-      servings: recipe.servings || 4,
-      difficulty: recipe.difficulty || "medium",
-      type: "complete"
-    };
-    
-    console.log("Sending recipe to server:", completeRecipe);
-    
-    // First save the recipe to the database
-    const createResponse = await axios.post('/recipes/custom/create', completeRecipe);
-    const savedRecipe = createResponse.data;
-    console.log("Recipe saved:", savedRecipe);
-    
-    // Then associate it with the user
-    await axios.post(`/users/${localUser.id}/recipes/${savedRecipe._id}`);
-    
-    setSuccessMessage('Recipe saved successfully!');
-    setTimeout(() => setSuccessMessage(''), 3000);
-  } catch (error) {
-    console.error('Error saving recipe:', error);
-    console.error('Error details:', error.response?.data);
-    setErrorMessage(error.response?.data?.error || error.message || 'Failed to save recipe');
-    setTimeout(() => setErrorMessage(''), 3000);
-  }
-};
+      
+      // Make sure ingredients are in the correct format
+      const formattedIngredients = recipe.ingredients.map(ingredient => {
+        // If ingredient is a string, convert to object
+        if (typeof ingredient === 'string') {
+          return {
+            ingredient: ingredient,
+            amount: "1",
+            unit: ""
+          };
+        }
+        return ingredient;
+      });
+      
+      // Ensure recipe has all required fields
+      const completeRecipe = {
+        name: recipe.name,
+        ingredients: formattedIngredients,
+        instructions: Array.isArray(recipe.instructions) ? recipe.instructions : [recipe.instructions],
+        nutrition: recipe.nutrition || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+        prepTime: recipe.prepTime || 30,
+        cookTime: recipe.cookTime || 30,
+        servings: recipe.servings || 4,
+        difficulty: recipe.difficulty || "medium",
+        type: "complete"
+      };
+      
+      // First save the recipe to the database
+      const createResponse = await axios.post('/recipes/custom/create', completeRecipe);
+      const savedRecipe = createResponse.data;
+      
+      // Then associate it with the user - fix the URL to match your backend route
+      await axios.post(`/users/${localUser.id}/recipes/${savedRecipe._id}`);
+      
+      setSuccessMessage('Recipe saved successfully!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Error saving recipe:', error);
+      console.error('Error details:', error.response?.data);
+      setErrorMessage(error.response?.data?.error || error.message || 'Failed to save recipe');
+      setTimeout(() => setErrorMessage(''), 3000);
+    }
+  };
 
   // Auto scroll to bottom of messages
   useEffect(() => {
@@ -362,6 +358,7 @@ const CustomChatInterface = ({ user }) => {
     setMessages((prevMessages) => [...prevMessages, message]);
   };
   // Process and save recipe from bot message
+  // Process and save recipe from bot message
 const processAndSaveRecipe = (botMessage) => {
   try {
     console.log("Processing message for recipe:", botMessage);      
@@ -385,7 +382,7 @@ const processAndSaveRecipe = (botMessage) => {
       }
     }
     
-    // If structured data doesn't have a recipe, extract it from the message text
+    // If we couldn't extract structured data, extract it from the message text
     if (!recipe) {
       console.log("Creating recipe from text");
       
@@ -426,6 +423,15 @@ const processAndSaveRecipe = (botMessage) => {
         });
       }
       
+      // If no ingredients were extracted, add a default one
+      if (ingredients.length === 0) {
+        ingredients.push({
+          amount: "1",
+          unit: "serving",
+          ingredient: "Main ingredient"
+        });
+      }
+      
       // Extract instructions
       const instructions = [];
       const instructionRegex = /(?:Instructions?|Directions?|Steps?|Method):[\s\S]*?((?:\d+\..+\n)+)/i;
@@ -442,11 +448,16 @@ const processAndSaveRecipe = (botMessage) => {
         });
       }
       
+      // If no instructions were extracted, add a default one
+      if (instructions.length === 0) {
+        instructions.push("Combine all ingredients and cook until done.");
+      }
+      
       // Create recipe object
       recipe = {
         name: name,
-        ingredients: ingredients.length > 0 ? ingredients : [{ ingredient: "Main ingredient", amount: "1", unit: "" }],
-        instructions: instructions.length > 0 ? instructions : ["Combine all ingredients and cook until done."],
+        ingredients: ingredients,
+        instructions: instructions,
         nutrition: {
           calories: 0,
           protein: 0,

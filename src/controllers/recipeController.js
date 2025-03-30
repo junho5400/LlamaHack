@@ -196,9 +196,11 @@ exports.getIngredientRecommendations = async (req, res) => {
 };
 
 // Create custom recipe
+// In src/controllers/recipeController.js
+// Update createCustomRecipe function
 exports.createCustomRecipe = async (req, res) => {
   try {
-    console.log("Received recipe data:", req.body);
+    console.log("Received recipe data:", JSON.stringify(req.body, null, 2));
     
     // Extract recipe data from request body
     const { 
@@ -213,17 +215,34 @@ exports.createCustomRecipe = async (req, res) => {
       type
     } = req.body;
     
+    // Validate ingredients are properly formatted
+    const validatedIngredients = Array.isArray(ingredients) ? 
+      ingredients.map(ing => {
+        if (typeof ing === 'string') {
+          return { ingredient: ing, amount: '1', unit: '' };
+        }
+        return {
+          ingredient: ing.ingredient || 'Unknown ingredient',
+          amount: ing.amount || '1',
+          unit: ing.unit || ''
+        };
+      }) : 
+      [{ ingredient: 'Main ingredient', amount: '1', unit: 'serving' }];
+    
+    // Validate instructions are properly formatted
+    const validatedInstructions = Array.isArray(instructions) ?
+      instructions.filter(inst => inst && typeof inst === 'string') :
+      ['Combine all ingredients and cook until done.'];
+    
     // Create a list of tags from the recipe properties
-    // But make sure to check if each property exists before using it
     let tags = ['custom'];
+    if (type) tags.push(type.toLowerCase());
     
-    // Do NOT try to call .join() on potentially undefined variables
-    
-    // Create the recipe
+    // Create the recipe with validated data
     const newRecipe = new Recipe({
       name: name || 'Custom Recipe',
-      ingredients: ingredients || [],
-      instructions: instructions || [],
+      ingredients: validatedIngredients,
+      instructions: validatedInstructions,
       nutrition: nutrition || { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
       prepTime: prepTime || 30,
       cookTime: cookTime || 30,
@@ -233,13 +252,16 @@ exports.createCustomRecipe = async (req, res) => {
       tags: tags
     });
     
-    // Save the recipe
-    await newRecipe.save();
+    console.log("Recipe to save:", JSON.stringify(newRecipe, null, 2));
     
-    return res.status(201).json(newRecipe);
+    // Save the recipe
+    const savedRecipe = await newRecipe.save();
+    console.log("Recipe saved successfully:", savedRecipe._id);
+    
+    return res.status(201).json(savedRecipe);
   } catch (error) {
     console.error('Error creating custom recipe:', error);
-    console.error('Recipe data received:', req.body);
+    console.error('Recipe data received:', JSON.stringify(req.body, null, 2));
     return res.status(500).json({ 
       error: 'Failed to create custom recipe', 
       details: error.message 

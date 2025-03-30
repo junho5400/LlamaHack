@@ -71,20 +71,36 @@ const SavedRecipes = ({ userId }) => {
   const [error, setError] = useState('');
   const navigate = useNavigate();
   
-  useEffect(() => {
+  // In client/src/components/SavedRecipes.js
+useEffect(() => {
     const fetchSavedRecipes = async () => {
       try {
+        // Add this log to debug
+        console.log('Fetching saved recipes for user ID:', userId);
+        
         const response = await axios.get(`/users/${userId}/recipes`);
+        
+        // Add this log to see what data was returned
+        console.log('Saved recipes response:', response.data);
+        
+        // Set the recipes state
         setRecipes(response.data);
       } catch (error) {
         console.error('Error fetching saved recipes:', error);
+        console.error('Error details:', error.response?.data);
         setError('Failed to load saved recipes. Please try again later.');
       } finally {
         setIsLoading(false);
       }
     };
     
-    fetchSavedRecipes();
+    // Only fetch if userId is available
+    if (userId) {
+      fetchSavedRecipes();
+    } else {
+      setIsLoading(false);
+      setError('User ID not found. Please log in again.');
+    }
   }, [userId]);
   
   if (isLoading) {

@@ -5,6 +5,8 @@ import styled from 'styled-components';
 import axios from 'axios';
 import Login from './components/Login';
 import Register from './components/Register';
+import SavedRecipes from './components/SavedRecipes';
+import Preferences from './components/Preferences';
 
 // Configure axios to use your API base URL
 axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
@@ -95,13 +97,19 @@ function App() {
       const token = localStorage.getItem('token');
       const userData = localStorage.getItem('user');
       
+      console.log("Token from localStorage:", token ? "Token exists" : "No token");
+      console.log("User data from localStorage:", userData ? "User data exists" : "No user data");
+      
       if (token && userData) {
         try {
           // Verify token is valid by making a request to /auth/me
+          console.log("Verifying token by calling /auth/me");
           const response = await axios.get('/auth/me');
+          console.log("Auth verification response:", response.data);
           setUser(response.data.user);
           setIsAuthenticated(true);
         } catch (error) {
+          console.error("Token validation error:", error);
           // Token is invalid or expired
           localStorage.removeItem('token');
           localStorage.removeItem('user');
@@ -156,14 +164,14 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/chat" element={<CustomChatInterface user={user} />} />
-            <Route 
-              path="/recipes" 
-              element={isAuthenticated ? <SavedRecipes userId={user?.id} /> : <Navigate to="/login" />} 
-            />
-            <Route 
-              path="/preferences" 
-              element={isAuthenticated ? <Preferences userId={user?.id} /> : <Navigate to="/login" />} 
-            />
+<Route 
+  path="/recipes" 
+  element={isAuthenticated ? <SavedRecipes userId={user?.id} /> : <Navigate to="/login" />} 
+/>
+<Route 
+  path="/preferences" 
+  element={isAuthenticated ? <Preferences userId={user?.id || user?._id} /> : <Navigate to="/login" />} 
+/>
             <Route path="/login" element={<Login setIsAuthenticated={setIsAuthenticated} />} />
             <Route path="/register" element={<Register setIsAuthenticated={setIsAuthenticated} />} />
           </Routes>
@@ -218,26 +226,6 @@ const Home = () => {
       </HomeDescription>
       <StartButton to="/chat">Start Cooking</StartButton>
     </HomeContainer>
-  );
-};
-
-// Saved Recipes component (placeholder)
-const SavedRecipes = () => {
-  return (
-    <div>
-      <h2>Your Saved Recipes</h2>
-      <p>Your saved recipes will appear here.</p>
-    </div>
-  );
-};
-
-// Preferences component (placeholder)
-const Preferences = () => {
-  return (
-    <div>
-      <h2>Your Preferences</h2>
-      <p>Set your dietary preferences and allergies here.</p>
-    </div>
   );
 };
 

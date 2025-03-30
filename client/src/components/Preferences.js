@@ -116,12 +116,9 @@ const Preferences = () => {
   };
   
   // Fetch user preferences
-  // In client/src/components/Preferences.js
-useEffect(() => {
+  useEffect(() => {
     const fetchPreferences = async () => {
       try {
-        console.log("Fetching preferences");
-        
         // Make sure the token is included in the request
         const token = localStorage.getItem('token');
         if (!token) {
@@ -139,10 +136,7 @@ useEffect(() => {
           }
         });
         
-        console.log("Auth response:", response.data);
-        
         const { preferences } = response.data.user;
-        console.log("User preferences:", preferences);
         
         if (preferences) {
           setAllergies(preferences.allergies || []);
@@ -152,7 +146,6 @@ useEffect(() => {
         }
       } catch (error) {
         console.error('Error fetching preferences:', error);
-        console.error('Error details:', error.response?.data);
         setMessage({ 
           text: `Failed to load preferences: ${error.response?.data?.error || error.message}`, 
           type: 'error' 
@@ -254,6 +247,13 @@ useEffect(() => {
       <h2>Your Preferences</h2>
       <p>Set your dietary preferences and allergies to get personalized recipe recommendations.</p>
       
+      <div style={{ marginBottom: '20px', padding: '10px', backgroundColor: '#f5f5f5', borderRadius: '5px' }}>
+      <p><strong>Debug Info:</strong></p>
+      <p>Allergies: {allergies.length}</p>
+      <p>Dietary Restrictions: {dietaryRestrictions.length}</p>
+      <p>Favorite Ingredients: {favoriteIngredients.length}</p>
+      <p>Disliked Ingredients: {dislikedIngredients.length}</p>
+    </div>
       <Form onSubmit={handleSave}>
         <SectionTitle>Allergies</SectionTitle>
         <TagsContainer>
