@@ -116,11 +116,29 @@ const Preferences = () => {
   };
   
   // Fetch user preferences
-  useEffect(() => {
+  // In client/src/components/Preferences.js
+useEffect(() => {
     const fetchPreferences = async () => {
       try {
         console.log("Fetching preferences");
-        const response = await axios.get('/auth/me');
+        
+        // Make sure the token is included in the request
+        const token = localStorage.getItem('token');
+        if (!token) {
+          console.error("No authentication token found");
+          setMessage({ 
+            text: 'Please log in to view and save preferences', 
+            type: 'error' 
+          });
+          return;
+        }
+        
+        const response = await axios.get('/auth/me', {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        
         console.log("Auth response:", response.data);
         
         const { preferences } = response.data.user;
@@ -134,8 +152,9 @@ const Preferences = () => {
         }
       } catch (error) {
         console.error('Error fetching preferences:', error);
+        console.error('Error details:', error.response?.data);
         setMessage({ 
-          text: 'Failed to load preferences. Please try again later.', 
+          text: `Failed to load preferences: ${error.response?.data?.error || error.message}`, 
           type: 'error' 
         });
       }

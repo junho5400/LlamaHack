@@ -254,44 +254,72 @@ const CustomChatInterface = ({ user }) => {
   const messagesEndRef = useRef(null);
 
   // Add a function to save recipes
+  // Add console logs to trace the issue
   const saveRecipe = async (recipe) => {
-    // Get user directly from localStorage instead of relying on props
-    const userString = localStorage.getItem('user');
-    
-    if (!userString) {
-      setErrorMessage('Please log in to save recipes');
-      setTimeout(() => setErrorMessage(''), 3000);
-      return;
+  console.log("Attempting to save recipe:", recipe);
+  
+  const userString = localStorage.getItem('user');
+  
+  if (!userString) {
+    setErrorMessage('Please log in to save recipes');
+    setTimeout(() => setErrorMessage(''), 3000);
+    return;
+  }
+  
+  const localUser = JSON.parse(userString);
+  console.log("User:", localUser);
+  
+  try {
+    // Check if recipe is valid
+    if (!recipe || !recipe.name || !recipe.ingredients || !recipe.instructions) {
+      throw new Error('Invalid recipe format');
     }
     
-    const localUser = JSON.parse(userString);
-    
-    try {
-      // First check if the recipe has an ID (from the database)
-      if (!recipe._id) {
-        // If not, we need to create/save it first
-        const createResponse = await axios.post('/recipes/custom/create', recipe);
-        recipe = createResponse.data; // Get the saved recipe with ID
+    // Make sure ingredients are in the correct format
+    const formattedIngredients = recipe.ingredients.map(ingredient => {
+      // If ingredient is a string, convert to object
+      if (typeof ingredient === 'string') {
+        return {
+          ingredient: ingredient,
+          amount: "1",
+          unit: ""
+        };
       }
-      
-      // Now save it to the user's collection
-      await axios.post(`/users/${localUser.id}/recipes/${recipe._id}`);
-      setSuccessMessage('Recipe saved successfully!');
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        setSuccessMessage('');
-      }, 3000);
-    } catch (error) {
-      console.error('Error saving recipe:', error);
-      setErrorMessage(error.response?.data?.error || 'Failed to save recipe');
-      
-      // Clear error message after 3 seconds
-      setTimeout(() => {
-        setErrorMessage('');
-      }, 3000);
-    }
-  };
+      return ingredient;
+    });
+    
+    // Ensure recipe has all required fields
+    const completeRecipe = {
+      name: recipe.name,
+      ingredients: formattedIngredients,
+      instructions: Array.isArray(recipe.instructions) ? recipe.instructions : [recipe.instructions],
+      nutrition: recipe.nutrition || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+      prepTime: recipe.prepTime || 30,
+      cookTime: recipe.cookTime || 30,
+      servings: recipe.servings || 4,
+      difficulty: recipe.difficulty || "medium",
+      type: "complete"
+    };
+    
+    console.log("Sending recipe to server:", completeRecipe);
+    
+    // First save the recipe to the database
+    const createResponse = await axios.post('/recipes/custom/create', completeRecipe);
+    const savedRecipe = createResponse.data;
+    console.log("Recipe saved:", savedRecipe);
+    
+    // Then associate it with the user
+    await axios.post(`/users/${localUser.id}/recipes/${savedRecipe._id}`);
+    
+    setSuccessMessage('Recipe saved successfully!');
+    setTimeout(() => setSuccessMessage(''), 3000);
+  } catch (error) {
+    console.error('Error saving recipe:', error);
+    console.error('Error details:', error.response?.data);
+    setErrorMessage(error.response?.data?.error || error.message || 'Failed to save recipe');
+    setTimeout(() => setErrorMessage(''), 3000);
+  }
+};
 
   // Auto scroll to bottom of messages
   useEffect(() => {
@@ -345,11 +373,9 @@ const processAndSaveRecipe = (botMessage) => {
     
     if (structuredDataMatch) {
       try {
-        // Try to parse the structured data
         const dataStr = structuredDataMatch[1];
         console.log("Found structured data:", dataStr);
         
-        // Parse the JSON if possible
         const structuredData = JSON.parse(dataStr);
         
         if (structuredData.responseType === "recipe" && structuredData.recipe) {
@@ -360,51 +386,68 @@ const processAndSaveRecipe = (botMessage) => {
       }
     }
     
-    // If we couldn't get structured data, create a recipe from the message text
+    // If structured data doesn't have a recipe, extract it from the message text
     if (!recipe) {
       console.log("Creating recipe from text");
-      // Extract ingredients and steps from the text
-      const lines = botMessage.text.split('\n');
-      const ingredientLines = [];
-      const instructionLines = [];
       
-      let section = null;
-      for (const line of lines) {
-        if (line.includes('Ingredients:')) {
-          section = 'ingredients';
-        } else if (line.includes('Steps:') || line.includes('Instructions:')) {
-          section = 'instructions';
-        } else if (section === 'ingredients' && line.trim().startsWith('-')) {
-          ingredientLines.push(line.trim().substring(1).trim());
-        } else if (section === 'instructions' && 
-                  (line.trim().match(/^\d+\./) || line.trim().match(/^[a-zA-Z]+:/))) {
-          instructionLines.push(line.trim().replace(/^\d+\.\s*/, '').replace(/^[a-zA-Z]+:\s*/, ''));
-        }
+      // Extract recipe name
+      let name = "Custom Recipe";
+      const nameMatch = botMessage.text.match(/(?:Recipe for|Here's a recipe for|Recipe:|Here's how to make) (.*?)[\n\.]/i);
+      if (nameMatch) {
+        name = nameMatch[1].trim();
       }
       
-      // Get the title (assuming it's in the first few lines)
-      let title = "Custom Recipe";
-      for (let i = 0; i < 3 && i < lines.length; i++) {
-        if (lines[i].includes('**') && !lines[i].includes('Ingredients') && !lines[i].includes('Steps')) {
-          title = lines[i].replace(/\*\*/g, '').trim();
-          break;
-        }
+      // Extract ingredients
+      const ingredients = [];
+      const ingredientRegex = /Ingredients?:[\s\S]*?((?:- .*\n)+)/i;
+      const ingredientMatch = botMessage.text.match(ingredientRegex);
+      
+      if (ingredientMatch) {
+        const ingredientList = ingredientMatch[1].split('\n').filter(line => line.trim().startsWith('-'));
+        
+        ingredientList.forEach(line => {
+          const ingredient = line.trim().substring(1).trim();
+          if (ingredient) {
+            // Try to parse amount, unit and ingredient
+            const match = ingredient.match(/^([\d./]+)?\s*([a-zA-Z]+)?\s+(.+)$/);
+            if (match) {
+              ingredients.push({
+                amount: match[1] || "1",
+                unit: match[2] || "",
+                ingredient: match[3]
+              });
+            } else {
+              ingredients.push({
+                amount: "1",
+                unit: "",
+                ingredient: ingredient
+              });
+            }
+          }
+        });
       }
       
-      // Map ingredient strings to required format
-      const formattedIngredients = ingredientLines.map(ingredient => {
-        return {
-          ingredient: ingredient,
-          amount: "1", 
-          unit: ""
-        };
-      });
+      // Extract instructions
+      const instructions = [];
+      const instructionRegex = /(?:Instructions?|Directions?|Steps?|Method):[\s\S]*?((?:\d+\..+\n)+)/i;
+      const instructionMatch = botMessage.text.match(instructionRegex);
+      
+      if (instructionMatch) {
+        const instructionList = instructionMatch[1].split('\n').filter(line => line.trim().match(/^\d+\./));
+        
+        instructionList.forEach(line => {
+          const instruction = line.trim().replace(/^\d+\.\s*/, '');
+          if (instruction) {
+            instructions.push(instruction);
+          }
+        });
+      }
       
       // Create recipe object
       recipe = {
-        name: title,
-        ingredients: formattedIngredients,
-        instructions: instructionLines,
+        name: name,
+        ingredients: ingredients.length > 0 ? ingredients : [{ ingredient: "Main ingredient", amount: "1", unit: "" }],
+        instructions: instructions.length > 0 ? instructions : ["Combine all ingredients and cook until done."],
         nutrition: {
           calories: 0,
           protein: 0,
@@ -414,14 +457,15 @@ const processAndSaveRecipe = (botMessage) => {
         prepTime: 30,
         cookTime: 30,
         servings: 4,
-        difficulty: "medium"
+        difficulty: "medium",
+        type: "complete"
       };
       
       console.log("Created recipe:", recipe);
     }
     
-    // Now save the recipe
-    saveRecipe(recipe);
+    // Save the recipe
+    this.saveRecipe(recipe);
     
   } catch (error) {
     console.error('Error processing recipe:', error);
