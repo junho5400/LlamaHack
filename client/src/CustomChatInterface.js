@@ -165,70 +165,106 @@ const CustomChatInterface = () => {
     setMessages((prevMessages) => [...prevMessages, message]);
   };
 
-  // Send user input to the backend
-  const handleSend = async () => {
-    if (!inputText.trim()) return;
-    
-    addMessage({
-      text: inputText,
-      sender: 'user'
-    });
-    
-    const text = inputText;
-    setInputText('');
-    
-    // Process user input based on current state
-    processUserInput(text);
-  };
-
   // Process user input based on current chat state
   const processUserInput = async (text) => {
-    switch (chatState) {
-      case CHAT_STATES.INITIAL:
-        // User has entered a cuisine or dish type
-        if (text.toLowerCase().includes('create my own')) {
-          startCustomRecipeFlow();
-        } else {
-          processInitialInput(text);
-        }
-        break;
-      case CHAT_STATES.CUISINE_SELECTED:
-        // User has selected a dish type
-        fetchRecipeOptions(text);
-        break;
-      case CHAT_STATES.DISH_TYPE_SELECTED:
-        // User has selected a specific recipe
-        if (text.toLowerCase().includes('create my own')) {
-          startCustomRecipeFlow();
-        } else {
-          fetchRecipeByName(text);
-        }
-        break;
-      case CHAT_STATES.RECIPE_SELECTED:
-        // User might be customizing the recipe
-        customizeCurrentRecipe(text);
-        break;
-      case CHAT_STATES.SELECTING_BASE:
-        selectBase(text);
-        break;
-      case CHAT_STATES.SELECTING_PROTEIN:
-        selectProtein(text);
-        break;
-      case CHAT_STATES.SELECTING_VEGETABLES:
-        selectVegetables(text);
-        break;
-      case CHAT_STATES.SELECTING_SEASONINGS:
-        selectSeasonings(text);
-        break;
-      case CHAT_STATES.SELECTING_COOKING_METHOD:
-        selectCookingMethod(text);
-        break;
-      default:
-        // Default fallback
-        addMessage({
-          text: "I'm not sure how to help with that. Can you try a different request?",
-          sender: 'bot'
-        });
+    // Show thinking indicator
+    const thinkingMsgId = Date.now();
+    addMessage({
+      id: thinkingMsgId,
+      text: "Thinking...",
+      sender: 'bot',
+      isThinking: true
+    });
+    
+    try {
+      // Parse user intent using Llama
+      const intentResponse = await axios.post('/api/parse-intent', { userInput: text });
+      const parsedIntent = intentResponse.data;
+      
+      // Remove thinking indicator
+      setMessages(prev => prev.filter(m => !m.isThinking));
+      
+      console.log('Parsed intent:', parsedIntent);
+      
+      // Process based on intent
+      switch (parsedIntent.intent) {
+        case 'search_recipe':
+          if (parsedIntent.specificDish) {
+            await fetchRecipeByName(parsedIntent.specificDish);
+          } else if (parsedIntent.cuisine || parsedIntent.dishType) {
+            await fetchRecipeOptions(parsedIntent.dishType, parsedIntent.cuisine);
+          } else {
+            addMessage({
+              text: "What type of cuisine or dish would you like to make today?",
+              sender: 'bot'
+            });
+          }
+          break;
+        
+        case 'customize_recipe':
+          if (currentRecipe) {
+            await customizeCurrentRecipe(parsedIntent.customization || text);
+          } else {
+            addMessage({
+              text: "I don't have a recipe to customize yet. Let's find a recipe first. What would you like to make?",
+              sender: 'bot'
+            });
+          }
+          break;
+        
+        case 'create_custom':
+          await startCustomRecipeFlow();
+          break;
+        
+        case 'general_question':
+          // Handle general cooking questions
+          const response = await axios.post('/test-llama', { 
+            prompt: `User asked: "${text}"\n\nProvide a helpful response about cooking or food.` 
+          });
+          
+          addMessage({
+            text: response.data.response,
+            sender: 'bot'
+          });
+          break;
+          
+        default:
+          // If we're in a specific state in the flow, continue that flow
+          switch (chatState) {
+            case CHAT_STATES.SELECTING_BASE:
+              await selectBase(text);
+              break;
+            case CHAT_STATES.SELECTING_PROTEIN:
+              await selectProtein(text);
+              break;
+            case CHAT_STATES.SELECTING_VEGETABLES:
+              await selectVegetables(text);
+              break;
+            case CHAT_STATES.SELECTING_SEASONINGS:
+              await selectSeasonings(text);
+              break;
+            case CHAT_STATES.SELECTING_COOKING_METHOD:
+              await selectCookingMethod(text);
+              break;
+            case CHAT_STATES.RECIPE_SELECTED:
+              // Assume it's a customization if we have a recipe selected
+              await customizeCurrentRecipe(text);
+              break;
+            default:
+              // Fallback to initial query processing
+              await processInitialInput(text);
+          }
+      }
+    } catch (error) {
+      console.error('Error processing user input:', error);
+      
+      // Remove thinking indicator
+      setMessages(prev => prev.filter(m => !m.isThinking));
+      
+      addMessage({
+        text: "I'm having trouble understanding that. Could you try rephrasing or tell me what kind of dish you'd like to make?",
+        sender: 'bot'
+      });
     }
   };
 
@@ -271,37 +307,40 @@ const CustomChatInterface = () => {
   // Fetch recipe options based on cuisine and/or dish type
   const fetchRecipeOptions = async (dishType, cuisine = '') => {
     try {
-      const searchText = cuisine 
-        ? `${cuisine} ${dishType}` 
-        : dishType;
-      
       addMessage({
-        text: `Looking for ${searchText} recipes...`,
+        text: cuisine 
+          ? `Looking for ${cuisine} ${dishType || 'recipes'}...` 
+          : `Looking for ${dishType || 'delicious recipes'}...`,
         sender: 'bot'
       });
       
-      // Use the test-llama endpoint to get recipe suggestions
-      const response = await axios.post('/test-llama', {
-        prompt: `List 5 popular ${searchText} recipes. Return ONLY a JSON array in this format: 
-        [{"name": "Dish name", "description": "Brief description"}]`
-      });
+      // Use the intent-based endpoint
+      const intent = {
+        dishType: dishType,
+        cuisine: cuisine
+      };
       
-      // Parse JSON from the response
-      const jsonMatch = response.data.response.match(/\[[\s\S]*\]/);
-      const recipeOptions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      const response = await axios.post('/api/recipe-suggestions', { intent });
+      const recipeOptions = response.data;
       
       if (recipeOptions.length > 0) {
         setOptions([...recipeOptions, { name: "Create my own recipe", description: "Customize your own dish" }]);
         
+        const message = cuisine 
+          ? `Here are some ${cuisine} ${dishType || 'dishes'} you might enjoy. Which one would you like to make?` 
+          : `Here are some ${dishType || 'recipes'} you might enjoy. Which one would you like to make?`;
+        
         addMessage({
-          text: `Here are some ${searchText} recipe options. What would you like to make?`,
+          text: message,
           sender: 'bot'
         });
         
         setChatState(CHAT_STATES.DISH_TYPE_SELECTED);
       } else {
         addMessage({
-          text: `I couldn't find any ${searchText} recipes. Would you like to try something else?`,
+          text: cuisine 
+            ? `I couldn't find any ${cuisine} ${dishType || 'recipes'}. Would you like to try something else?`
+            : `I couldn't find any ${dishType || 'recipes'}. Would you like to try something else?`,
           sender: 'bot'
         });
       }
@@ -349,27 +388,14 @@ const CustomChatInterface = () => {
         console.log('Recipe not found in database, generating with Llama');
       }
       
-      // If not in database, use test-llama
-      const response = await axios.post('/test-llama', {
-        prompt: `Give me a detailed recipe for ${name}. Provide the recipe in this JSON format:
-        {
-          "name": "${name}",
-          "ingredients": [{"ingredient": "Ingredient name", "amount": "amount", "unit": "unit"}],
-          "instructions": ["Step 1", "Step 2", ...],
-          "nutrition": {"calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number},
-          "prepTime": number,
-          "cookTime": number,
-          "servings": number,
-          "difficulty": "easy/medium/hard"
-        }`
+      // If not in database, use the new API endpoint
+      const response = await axios.post('/api/recipe-details', {
+        dish: name,
+        cuisine: 'any'
       });
       
-      // Parse JSON from the response
-      const jsonMatch = response.data.response.match(/{[\s\S]*?}/);
-      const recipeJson = jsonMatch ? jsonMatch[0] : null;
-      
-      if (recipeJson) {
-        const recipe = JSON.parse(recipeJson);
+      if (response.data && !response.data.error) {
+        const recipe = response.data;
         setCurrentRecipe(recipe);
         
         // Display recipe details
@@ -387,7 +413,7 @@ const CustomChatInterface = () => {
         
         setChatState(CHAT_STATES.RECIPE_SELECTED);
       } else {
-        throw new Error('Failed to parse recipe');
+        throw new Error('Failed to generate recipe');
       }
     } catch (error) {
       console.error('Error fetching recipe:', error);
@@ -415,58 +441,16 @@ const CustomChatInterface = () => {
         sender: 'bot'
       });
       
-      // Try database endpoint first if recipe has an ID
-      if (currentRecipe._id) {
-        try {
-          const dbResponse = await axios.post(`/recipes/customize/${currentRecipe._id}`, {
-            customizations: [customization]
-          });
-          
-          if (dbResponse.data && !dbResponse.data.error) {
-            const customizedRecipe = dbResponse.data;
-            setCurrentRecipe(customizedRecipe);
-            
-            // Display customized recipe
-            const recipeText = formatRecipeText(customizedRecipe);
-            
-            addMessage({
-              text: `Here's your customized recipe:\n\n${recipeText}`,
-              sender: 'bot'
-            });
-            
-            addMessage({
-              text: "Is there anything else you'd like to customize?",
-              sender: 'bot'
-            });
-            return;
-          }
-        } catch (dbError) {
-          console.log('Customization via API failed, using Llama directly');
+      // Use the new API endpoint
+      const response = await axios.post('/api/recipe-details', {
+        dish: currentRecipe.name,
+        options: {
+          customizations: [customization]
         }
-      }
-      
-      // If no ID or API fails, use test-llama directly
-      const response = await axios.post('/test-llama', {
-        prompt: `Customize this recipe to ${customization}:\n${JSON.stringify(currentRecipe)}\n
-        Provide the customized recipe in this JSON format:
-        {
-          "name": "Recipe Name",
-          "ingredients": [{"ingredient": "Ingredient name", "amount": "amount", "unit": "unit"}],
-          "instructions": ["Step 1", "Step 2", ...],
-          "nutrition": {"calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number},
-          "prepTime": number,
-          "cookTime": number,
-          "servings": number,
-          "difficulty": "easy/medium/hard"
-        }`
       });
       
-      // Parse JSON from the response
-      const jsonMatch = response.data.response.match(/{[\s\S]*?}/);
-      const recipeJson = jsonMatch ? jsonMatch[0] : null;
-      
-      if (recipeJson) {
-        const customizedRecipe = JSON.parse(recipeJson);
+      if (response.data && !response.data.error) {
+        const customizedRecipe = response.data;
         setCurrentRecipe(customizedRecipe);
         
         // Display customized recipe
@@ -482,7 +466,7 @@ const CustomChatInterface = () => {
           sender: 'bot'
         });
       } else {
-        throw new Error('Failed to parse customized recipe');
+        throw new Error('Failed to customize recipe');
       }
     } catch (error) {
       console.error('Error customizing recipe:', error);
@@ -524,15 +508,13 @@ const CustomChatInterface = () => {
         sender: 'bot'
       });
       
-      // Use Llama to suggest protein options
-      const response = await axios.post('/test-llama', {
-        prompt: `List 5 protein options that would pair well with ${base} as the main ingredient. Return ONLY a JSON array in this format: 
-        [{"name": "Protein name", "description": "Brief description"}]`
+      // Get protein recommendations
+      const response = await axios.post('/api/ingredient-recommendations', {
+        currentSelections: { base },
+        categoryToRecommend: 'protein'
       });
       
-      // Parse JSON from the response
-      const jsonMatch = response.data.response.match(/\[[\s\S]*\]/);
-      const proteinOptions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      const proteinOptions = response.data;
       
       if (proteinOptions.length > 0) {
         setOptions(proteinOptions);
@@ -562,15 +544,16 @@ const CustomChatInterface = () => {
         sender: 'bot'
       });
       
-      // Use Llama to suggest vegetable options
-      const response = await axios.post('/test-llama', {
-        prompt: `List 5 vegetable options that would pair well with ${customOptions.base} and ${protein}. Return ONLY a JSON array in this format: 
-        [{"name": "Vegetable name", "description": "Brief description"}]`
+      // Get vegetable recommendations
+      const response = await axios.post('/api/ingredient-recommendations', {
+        currentSelections: { 
+          base: customOptions.base,
+          protein
+        },
+        categoryToRecommend: 'vegetable'
       });
       
-      // Parse JSON from the response
-      const jsonMatch = response.data.response.match(/\[[\s\S]*\]/);
-      const vegetableOptions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      const vegetableOptions = response.data;
       
       if (vegetableOptions.length > 0) {
         setOptions(vegetableOptions);
@@ -602,15 +585,17 @@ const CustomChatInterface = () => {
         sender: 'bot'
       });
       
-      // Use Llama to suggest seasoning options
-      const response = await axios.post('/test-llama', {
-        prompt: `List 5 seasoning/herb/spice options that would pair well with ${customOptions.base}, ${customOptions.protein}, and ${vegetables.join(', ')}. Return ONLY a JSON array in this format: 
-        [{"name": "Seasoning name", "description": "Brief description"}]`
+      // Get seasoning recommendations
+      const response = await axios.post('/api/ingredient-recommendations', {
+        currentSelections: { 
+          base: customOptions.base,
+          protein: customOptions.protein,
+          vegetables
+        },
+        categoryToRecommend: 'seasoning'
       });
       
-      // Parse JSON from the response
-      const jsonMatch = response.data.response.match(/\[[\s\S]*\]/);
-      const seasoningOptions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      const seasoningOptions = response.data;
       
       if (seasoningOptions.length > 0) {
         setOptions(seasoningOptions);
@@ -642,15 +627,18 @@ const CustomChatInterface = () => {
         sender: 'bot'
       });
       
-      // Use Llama to suggest cooking methods
-      const response = await axios.post('/test-llama', {
-        prompt: `List 3 cooking methods that would work well for a dish with ${customOptions.base}, ${customOptions.protein}, and ${customOptions.vegetables.join(', ')}. Return ONLY a JSON array in this format: 
-        [{"name": "Cooking method", "description": "Brief description"}]`
+      // Get cooking method recommendations
+      const response = await axios.post('/api/ingredient-recommendations', {
+        currentSelections: { 
+          base: customOptions.base,
+          protein: customOptions.protein,
+          vegetables: customOptions.vegetables,
+          seasonings
+        },
+        categoryToRecommend: 'cooking method'
       });
       
-      // Parse JSON from the response
-      const jsonMatch = response.data.response.match(/\[[\s\S]*\]/);
-      const cookingOptions = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      const cookingOptions = response.data;
       
       if (cookingOptions.length > 0) {
         setOptions(cookingOptions);
@@ -680,35 +668,20 @@ const CustomChatInterface = () => {
         sender: 'bot'
       });
       
-      // Generate custom recipe with Llama
-      const response = await axios.post('/test-llama', {
-        prompt: `Create a detailed recipe using:
-        - Base: ${customOptions.base}
-        - Protein: ${customOptions.protein}
-        - Vegetables: ${customOptions.vegetables.join(', ')}
-        - Seasonings: ${customOptions.seasonings.join(', ')}
-        - Cooking Method: ${cookingMethod}
-        ${userPreferences.allergies && userPreferences.allergies.length ? `- Avoid these ingredients due to allergies: ${userPreferences.allergies.join(', ')}` : ''}
-        
-        Provide the recipe in this JSON format:
-        {
-          "name": "Creative recipe name",
-          "ingredients": [{"ingredient": "Ingredient name", "amount": "amount", "unit": "unit"}],
-          "instructions": ["Step 1", "Step 2", ...],
-          "nutrition": {"calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number},
-          "prepTime": number,
-          "cookTime": number,
-          "servings": number,
-          "difficulty": "easy/medium/hard"
-        }`
+      // Generate custom recipe with API
+      const response = await axios.post('/api/recipe-details', {
+        dish: 'custom',
+        options: {
+          customOptions: {
+            ...customOptions,
+            cookingMethod
+          },
+          allergies: userPreferences.allergies
+        }
       });
       
-      // Parse JSON from the response
-      const jsonMatch = response.data.response.match(/{[\s\S]*?}/);
-      const recipeJson = jsonMatch ? jsonMatch[0] : null;
-      
-      if (recipeJson) {
-        const customRecipe = JSON.parse(recipeJson);
+      if (response.data && !response.data.error) {
+        const customRecipe = response.data;
         setCurrentRecipe(customRecipe);
         
         // Display custom recipe
@@ -726,7 +699,7 @@ const CustomChatInterface = () => {
         
         setChatState(CHAT_STATES.RECIPE_COMPLETE);
       } else {
-        throw new Error('Failed to parse custom recipe');
+        throw new Error('Failed to create custom recipe');
       }
     } catch (error) {
       console.error('Error creating custom recipe:', error);
@@ -763,6 +736,22 @@ const CustomChatInterface = () => {
     text += `\nPrep Time: ${recipe.prepTime} minutes | Cook Time: ${recipe.cookTime} minutes | Servings: ${recipe.servings}`;
     
     return text;
+  };
+
+  // Send user input to the backend
+  const handleSend = async () => {
+    if (!inputText.trim()) return;
+    
+    addMessage({
+      text: inputText,
+      sender: 'user'
+    });
+    
+    const text = inputText;
+    setInputText('');
+    
+    // Process user input
+    await processUserInput(text);
   };
 
   // Handle option click
