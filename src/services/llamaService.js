@@ -74,7 +74,10 @@ const CACHE_TTL = 30 * 60 * 1000; // 30 minutes in milliseconds
 async function processChat(messages, options = {}) {
   // Create a cache key from the messages
   const cacheKey = JSON.stringify({
-    messages: messages.map(m => ({ role: m.role, content: m.content.substring(0, 100) })),
+    messages: messages.map(m => ({ 
+      role: m.role, 
+      content: m.content // Use the full content instead of truncating
+    })),
     model: options.model || LLAMA_MODEL,
     temperature: options.temperature || 0.7,
   });
