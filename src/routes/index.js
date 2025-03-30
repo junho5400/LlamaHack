@@ -119,5 +119,6 @@ router.post('/test-llama', async (req, res) => {
 // Import other routes
 router.use('/recipes', require('./recipeRoutes'));
 router.use('/users', require('./userRoutes'));
+router.use('/auth', require('./authRoutes'));
 
 module.exports = router;

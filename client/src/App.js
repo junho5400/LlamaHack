@@ -1,11 +1,25 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import CustomChatInterface from './CustomChatInterface';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import styled from 'styled-components';
 import axios from 'axios';
+import Login from './components/Login';
+import Register from './components/Register';
 
 // Configure axios to use your API base URL
 axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+axios.interceptors.request.use(
+  config => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  error => {
+    return Promise.reject(error);
+  }
+);
 
 const AppContainer = styled.div`
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -57,7 +71,60 @@ const MainContent = styled.main`
   min-height: 70vh;
 `;
 
+const LogoutButton = styled.button`
+  background: none;
+  border: none;
+  color: #333;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 18px;
+  
+  &:hover {
+    color: #4a6fa5;
+  }
+`;
+
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Check if user is authenticated on component mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      const token = localStorage.getItem('token');
+      const userData = localStorage.getItem('user');
+      
+      if (token && userData) {
+        try {
+          // Verify token is valid by making a request to /auth/me
+          const response = await axios.get('/auth/me');
+          setUser(response.data.user);
+          setIsAuthenticated(true);
+        } catch (error) {
+          // Token is invalid or expired
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        }
+      }
+      
+      setIsLoading(false);
+    };
+    
+    checkAuth();
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setIsAuthenticated(false);
+    setUser(null);
+  };
+
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
+
   return (
     <Router>
       <AppContainer>
@@ -70,17 +137,35 @@ function App() {
           <NavList>
             <NavItem><StyledLink to="/">Home</StyledLink></NavItem>
             <NavItem><StyledLink to="/chat">Chat</StyledLink></NavItem>
-            <NavItem><StyledLink to="/recipes">Saved Recipes</StyledLink></NavItem>
-            <NavItem><StyledLink to="/preferences">Preferences</StyledLink></NavItem>
+            {isAuthenticated ? (
+              <>
+                <NavItem><StyledLink to="/recipes">Saved Recipes</StyledLink></NavItem>
+                <NavItem><StyledLink to="/preferences">Preferences</StyledLink></NavItem>
+                <NavItem><LogoutButton onClick={handleLogout}>Logout</LogoutButton></NavItem>
+              </>
+            ) : (
+              <>
+                <NavItem><StyledLink to="/login">Login</StyledLink></NavItem>
+                <NavItem><StyledLink to="/register">Register</StyledLink></NavItem>
+              </>
+            )}
           </NavList>
         </NavBar>
         
         <MainContent>
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/chat" element={<CustomChatInterface />} />
-            <Route path="/recipes" element={<SavedRecipes />} />
-            <Route path="/preferences" element={<Preferences />} />
+            <Route path="/chat" element={<CustomChatInterface user={user} />} />
+            <Route 
+              path="/recipes" 
+              element={isAuthenticated ? <SavedRecipes userId={user?.id} /> : <Navigate to="/login" />} 
+            />
+            <Route 
+              path="/preferences" 
+              element={isAuthenticated ? <Preferences userId={user?.id} /> : <Navigate to="/login" />} 
+            />
+            <Route path="/login" element={<Login setIsAuthenticated={setIsAuthenticated} />} />
+            <Route path="/register" element={<Register setIsAuthenticated={setIsAuthenticated} />} />
           </Routes>
         </MainContent>
       </AppContainer>

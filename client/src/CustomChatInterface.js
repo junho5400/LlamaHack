@@ -107,7 +107,107 @@ const OptionButton = styled.button`
   }
 `;
 
-const CustomChatInterface = () => {
+// Add these styled components to your existing styled components section
+const RecipeContainer = styled.div`
+  background-color: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  padding: 20px;
+  margin: 15px 0;
+  align-self: stretch;
+`;
+
+const RecipeHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  
+  h3 {
+    margin: 0;
+    color: #4a6fa5;
+  }
+`;
+
+const SaveRecipeButton = styled.button`
+  background-color: ${props => props.disabled ? '#cccccc' : '#4a6fa5'};
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 16px;
+  cursor: ${props => props.disabled ? 'not-allowed' : 'pointer'};
+  
+  &:hover {
+    background-color: ${props => props.disabled ? '#cccccc' : '#3a5a8f'};
+  }
+`;
+
+const RecipeSection = styled.div`
+  margin-bottom: 20px;
+  
+  h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #4a6fa5;
+  }
+  
+  ul, ol {
+    margin: 0;
+    padding-left: 20px;
+  }
+  
+  li {
+    margin-bottom: 5px;
+  }
+`;
+
+const NutritionGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+`;
+
+const NutritionItem = styled.div`
+  display: flex;
+  flex-direction: column;
+  background-color: #f5f5f5;
+  padding: 10px;
+  border-radius: 5px;
+  text-align: center;
+  
+  span:first-child {
+    font-weight: bold;
+    margin-bottom: 5px;
+  }
+`;
+
+const RecipeMetadata = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  font-size: 14px;
+  color: #666;
+`;
+
+const ErrorNotification = styled.div`
+  background-color: #f8d7da;
+  color: #721c24;
+  padding: 10px 15px;
+  border-radius: 5px;
+  margin: 10px 0;
+  align-self: center;
+`;
+
+const SuccessNotification = styled.div`
+  background-color: #d4edda;
+  color: #155724;
+  padding: 10px 15px;
+  border-radius: 5px;
+  margin: 10px 0;
+  align-self: center;
+`;
+
+const CustomChatInterface = ({ user }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [options, setOptions] = useState([]);
@@ -117,11 +217,9 @@ const CustomChatInterface = () => {
     allergies: [],
     dietaryRestrictions: []
   });
-  
-  const messagesEndRef = useRef(null);
-
-  // System instructions for the LLM
-  const systemInstructions = `
+  const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [systemInstructions, setSystemInstructions] = useState(`
     You are a culinary assistant that helps users find recipes, customize them, and create their own recipes.
     
     Follow this workflow:
@@ -151,7 +249,44 @@ const CustomChatInterface = () => {
     }
     
     Put this structured data at the END of your response, it will be removed before showing to the user.
-  `;
+  `);
+  
+  const messagesEndRef = useRef(null);
+
+  // Add a function to save recipes
+  const saveRecipe = async (recipe) => {
+    if (!user) {
+      setErrorMessage('Please log in to save recipes');
+      setTimeout(() => setErrorMessage(''), 3000);
+      return;
+    }
+    
+    try {
+      // First check if the recipe has an ID (from the database)
+      if (!recipe._id) {
+        // If not, we need to create/save it first
+        const createResponse = await axios.post('/recipes/custom/create', recipe);
+        recipe = createResponse.data; // Get the saved recipe with ID
+      }
+      
+      // Now save it to the user's collection
+      await axios.post(`/users/${user.id}/recipes/${recipe._id}`);
+      setSuccessMessage('Recipe saved successfully!');
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => {
+        setSuccessMessage('');
+      }, 3000);
+    } catch (error) {
+      console.error('Error saving recipe:', error);
+      setErrorMessage(error.response?.data?.error || 'Failed to save recipe');
+      
+      // Clear error message after 3 seconds
+      setTimeout(() => {
+        setErrorMessage('');
+      }, 3000);
+    }
+  };
 
   // Auto scroll to bottom of messages
   useEffect(() => {
@@ -170,6 +305,25 @@ const CustomChatInterface = () => {
     });
   }, []);
 
+  useEffect(() => {
+    if (user && user.preferences) {
+      // Create a temporary variable to store the modified instructions
+      const userPreferencesText = `
+  
+  User Preferences:
+  ${user.preferences.allergies?.length ? `Allergies: ${user.preferences.allergies.join(', ')}` : ''}
+  ${user.preferences.dietaryRestrictions?.length ? `Dietary Restrictions: ${user.preferences.dietaryRestrictions.join(', ')}` : ''}
+  ${user.preferences.favoriteIngredients?.length ? `Favorite Ingredients: ${user.preferences.favoriteIngredients.join(', ')}` : ''}
+  ${user.preferences.dislikedIngredients?.length ? `Disliked Ingredients: ${user.preferences.dislikedIngredients.join(', ')}` : ''}`;
+  
+      // Only modify if we have actual preferences
+      if (userPreferencesText.trim() !== 'User Preferences:') {
+        // Set the modified system instructions to include preferences
+        setSystemInstructions(prevInstructions => prevInstructions + userPreferencesText);
+      }
+    }
+  }, [user]);
+  
   // Add a message to the chat
   const addMessage = (message) => {
     setMessages((prevMessages) => [...prevMessages, message]);
@@ -280,6 +434,78 @@ const CustomChatInterface = () => {
     handleSend();
   };
 
+  // Add this function to render the recipe
+const renderRecipe = () => {
+  if (!currentRecipe) return null;
+  
+  return (
+    <RecipeContainer>
+      <RecipeHeader>
+        <h3>{currentRecipe.name}</h3>
+        <SaveRecipeButton 
+          onClick={() => saveRecipe(currentRecipe)}
+          disabled={!user}
+        >
+          {user ? 'Save Recipe' : 'Login to Save'}
+        </SaveRecipeButton>
+      </RecipeHeader>
+      
+      <RecipeSection>
+        <h4>Ingredients</h4>
+        <ul>
+          {currentRecipe.ingredients.map((ingredient, index) => (
+            <li key={index}>
+              {ingredient.amount} {ingredient.unit} {ingredient.ingredient}
+            </li>
+          ))}
+        </ul>
+      </RecipeSection>
+      
+      <RecipeSection>
+        <h4>Instructions</h4>
+        <ol>
+          {currentRecipe.instructions.map((step, index) => (
+            <li key={index}>{step}</li>
+          ))}
+        </ol>
+      </RecipeSection>
+      
+      <RecipeSection>
+        <h4>Nutrition Information</h4>
+        <NutritionGrid>
+          <NutritionItem>
+            <span>Calories</span>
+            <span>{currentRecipe.nutrition?.calories || 'N/A'}</span>
+          </NutritionItem>
+          <NutritionItem>
+            <span>Protein</span>
+            <span>{currentRecipe.nutrition?.protein || 'N/A'}g</span>
+          </NutritionItem>
+          <NutritionItem>
+            <span>Carbs</span>
+            <span>{currentRecipe.nutrition?.carbs || 'N/A'}g</span>
+          </NutritionItem>
+          <NutritionItem>
+            <span>Fat</span>
+            <span>{currentRecipe.nutrition?.fat || 'N/A'}g</span>
+          </NutritionItem>
+          <NutritionItem>
+            <span>Fiber</span>
+            <span>{currentRecipe.nutrition?.fiber || 'N/A'}g</span>
+          </NutritionItem>
+        </NutritionGrid>
+      </RecipeSection>
+      
+      <RecipeMetadata>
+        <span>Prep Time: {currentRecipe.prepTime} min</span>
+        <span>Cook Time: {currentRecipe.cookTime} min</span>
+        <span>Servings: {currentRecipe.servings}</span>
+        <span>Difficulty: {currentRecipe.difficulty}</span>
+      </RecipeMetadata>
+    </RecipeContainer>
+  );
+};
+
   // Render quick reply options
   const renderOptions = () => {
     if (!options || options.length === 0) return null;
@@ -314,7 +540,18 @@ const CustomChatInterface = () => {
             Thinking...
           </MessageBubble>
         )}
+        {currentRecipe && renderRecipe()}
         {renderOptions()}
+        {errorMessage && (
+          <ErrorNotification>
+            {errorMessage}
+          </ErrorNotification>
+        )}
+        {successMessage && (
+          <SuccessNotification>
+            {successMessage}
+          </SuccessNotification>
+        )}
         <div ref={messagesEndRef} />
       </ChatBody>
       
