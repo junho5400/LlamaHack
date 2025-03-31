@@ -40,13 +40,13 @@ const Footer = styled.footer`
 // Theme definition
 const theme = {
   colors: {
-    primary: '#4a6fa5',
-    secondary: '#5e9b8b',
-    accent: '#f5a623',
-    background: '#f5f7fa',
+    primary: '#E53935',  // Tomato red
+    secondary: '#558B2F', // Olive green
+    accent: '#FFEB3B',    // Butter yellow
+    background: '#FFF8E1', // Warm cream background
     cardBg: '#ffffff',
-    text: '#333333',
-    textLight: '#666666',
+    text: '#33281E',      // Dark brown text
+    textLight: '#5D4037',
     border: '#e0e0e0',
     error: '#d9534f',
     success: '#5cb85c'
